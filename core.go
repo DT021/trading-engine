@@ -3,7 +3,7 @@ package engine
 type Engine struct {
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
-	Strategy            IStrategy
+	StrategyMap         map[string]*IStrategy
 	Events              []*event
 }
 
@@ -37,11 +37,80 @@ func (c *Engine) Put(e *event) {
 	c.Events = append(c.Events, e)
 }
 
+func (c *Engine) PutMultiply(events []*event) {
+	if events == nil {
+		return
+	}
+	if len(events) == 0 {
+		return
+	}
+
+	c.Events = append(c.Events, events...)
+}
+
 func (c *Engine) IsWaiting() bool {
 	if len(c.Events) > 0 {
 		return true
 	}
 	return false
+}
+
+func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
+	st, ok := c.StrategyMap[e.Symbol]
+
+	if !ok {
+		// ToDo Logger here
+		return
+	}
+
+	if c.BrokerConnector.IsSimulated() {
+		genEvents := c.BrokerConnector.OnCandleOpen(e.Candle)
+		c.PutMultiply(genEvents)
+	}
+
+	(*st).onCandleOpenHandler(e)
+
+}
+
+func (c *Engine) eCandleClose(e *CandleCloseEvent) {
+	st, ok := c.StrategyMap[e.Symbol]
+
+	if !ok {
+		// ToDo Logger here
+		return
+	}
+
+	if c.BrokerConnector.IsSimulated() {
+		genEvents := c.BrokerConnector.OnCandleClose(e.Candle)
+		c.PutMultiply(genEvents)
+	}
+
+	(*st).onCandleCloseHandler(e)
+
+}
+
+func (c *Engine) eNewOrder(e *NewOrderEvent) {
+	c.BrokerConnector.OnNewOrder(e) //todo подумать тут
+}
+
+func (c *Engine) eCancelOrder(e *OrderCancelEvent) {
+
+}
+
+func (c *Engine) eTick(e *NewTickEvent) {
+
+}
+
+func (c *Engine) eFill(e *OrderFillEvent) {
+	st, ok := c.StrategyMap[e.Symbol]
+
+	if !ok {
+		// ToDo Logger here
+		return
+	}
+
+	(*st).OnFill(e)
+
 }
 
 func (c *Engine) Run() error {
@@ -56,19 +125,19 @@ EVENT_LOOP:
 			continue EVENT_LOOP
 		}
 
-		switch (*e).(type) {
+		switch i := (*e).(type) {
 		case *CandleOpenEvent:
-			c.Strategy.OnCandleOpen()
+			c.eCandleOpen(i)
 		case *CandleCloseEvent:
-			c.Strategy.OnCandleClose()
+			c.eCandleClose(i)
 		case *NewOrderEvent:
-			c.BrokerConnector.OnNewOrder()
+			c.eNewOrder(i)
 		case *OrderCancelEvent:
-			c.Strategy.OnCancel()
+			c.eCancelOrder(i)
 		case *NewTickEvent:
-			c.Strategy.OnTick()
+			c.eTick(i)
 		case *OrderFillEvent:
-			c.Strategy.OnFill()
+			c.eFill(i)
 
 		}
 	}

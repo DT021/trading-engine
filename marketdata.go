@@ -6,3 +6,9 @@ type IMarketData interface {
 	Pop() *event
 	Run()
 }
+
+type ITimerEventProducer interface { //Todo подумать над этим
+	Next()
+	Pop() *event
+
+}

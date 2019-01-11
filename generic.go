@@ -6,10 +6,13 @@ import (
 )
 
 type OrderType string
+type OrderSide string
 type OrderState string
 type TradeType string
 
 const (
+	OrderBuy OrderSide = "B"
+	OrderSell OrderSide = "S"
 	EmptyOrder     OrderState = "EmptyOrder"
 	NewOrder       OrderState = "NewOrder"
 	ConfirmedOrder OrderState = "ConfirmedOrder"
@@ -28,6 +31,7 @@ const (
 	LongTrade   TradeType = "LongTrade"
 	ShortTrade  TradeType = "ShortTrade"
 	ClosedTrade TradeType = "ClosedTrade"
+
 )
 
 type Order struct {

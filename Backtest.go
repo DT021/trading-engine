@@ -67,11 +67,11 @@ func (bt *Backtest) checkExecutions() error {
 
 	if o.Type == "Market" {
 		bt.Context.OpenOrders = OrderArray{}
-		if bt.Context.OpenPosition.State == "New" {
+		if bt.Context.OpenPosition.Type == "New" {
 			bt.Context.OpenPosition.Symbol = bt.Symbol
 			bt.Context.OpenPosition.OpenTime = bt.Context.Candle(0).Datetime
 			bt.Context.OpenPosition.OpenPrice = bt.Context.Candle(0).Open
-			bt.Context.OpenPosition.State = "Open"
+			bt.Context.OpenPosition.Type = "Open"
 			bt.Context.OpenPosition.Qty = o.Qty
 			o.State = "Filled"
 			bt.FilledOrders = append(bt.FilledOrders, o)
@@ -79,7 +79,7 @@ func (bt *Backtest) checkExecutions() error {
 			return nil
 
 		} else {
-			if bt.Context.OpenPosition.State != "Open" {
+			if bt.Context.OpenPosition.Type != "Open" {
 				return errors.New("Trade is closed")
 			}
 			if bt.Context.OpenPosition.Qty != - o.Qty {
@@ -89,11 +89,11 @@ func (bt *Backtest) checkExecutions() error {
 			o.State = "Filled"
 			bt.Context.OpenPosition.CloseTime = bt.Context.Candle(0).Datetime
 			bt.Context.OpenPosition.ClosePrice = bt.Context.Candle(0).Open
-			bt.Context.OpenPosition.State = "Closed"
+			bt.Context.OpenPosition.Type = "Closed"
 
 			bt.ClosedPositions = append(bt.ClosedPositions, &bt.Context.OpenPosition)
 
-			bt.Context.OpenPosition = Trade{State: "New"}
+			bt.Context.OpenPosition = Trade{Type: "New"}
 		}
 
 	}

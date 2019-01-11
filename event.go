@@ -1,6 +1,9 @@
 package engine
 
-import "time"
+import (
+	"time"
+	"alex/marketdata"
+)
 
 type event interface {
 	getTime() time.Time
@@ -10,7 +13,9 @@ type event interface {
 }
 
 type CandleOpenEvent struct{
+	Symbol string
 	Time time.Time
+	Candle *marketdata.Candle
 }
 
 func (c *CandleOpenEvent) getName() string{
@@ -24,7 +29,9 @@ func (c *CandleOpenEvent) getTime() time.Time{
 
 
 type CandleCloseEvent struct{
+	Symbol string
 	Time time.Time
+	Candle *marketdata.Candle
 }
 
 func (c *CandleCloseEvent) getName() string{
@@ -38,6 +45,7 @@ func (c *CandleCloseEvent) getTime() time.Time{
 
 type NewTickEvent struct{
 	Time time.Time
+	Tick *marketdata.Tick
 }
 
 func (c *NewTickEvent) getName() string{
@@ -76,7 +84,9 @@ func (c *OrderConfirmationEvent) getTime() time.Time{
 
 
 type OrderFillEvent struct{
+	Symbol string
 	Time time.Time
+	ordId string
 }
 
 func (c *OrderFillEvent) getName() string{
