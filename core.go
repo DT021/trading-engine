@@ -109,12 +109,13 @@ func (c *Engine) eFill(e *OrderFillEvent) {
 		return
 	}
 
-	(*st).OnFill(e)
+	(*st).onOrderFillHandler(e)
 
 }
 
 func (c *Engine) Run() error {
-
+    go c.BrokerConnector.Connect()
+    go c.MarketDataConnector.Run()
 EVENT_LOOP:
 	for {
 		if c.MarketDataConnector.Done() && !c.IsWaiting() {
