@@ -151,6 +151,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 		st.onTickHandler(&oldEvent)
 		assert.Equal(t, 20, len(st.Ticks))
 		assert.True(t, isTicksSorted(st))
+
 	}
 
 	t.Log("Add few new generated events")
@@ -225,15 +226,20 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 
 	st := newTestBasicStrategy()
 
+	basicChecks := func() {
+		sorted, valid := isCandlesSortedAndValid(st)
+		assert.True(t, sorted)
+		assert.True(t, valid)
+		assert.Equal(t, st.LastCandleOpen(), st.Candles[len(st.Candles)-1].Open)
+	}
+
 	t.Log("Put some historical candles")
 	{
 		candles := genCandleArray(15)
 		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 15, len(st.Candles))
-		sorted, valid := isCandlesSortedAndValid(st)
-		assert.True(t, sorted)
-		assert.True(t, valid)
+		basicChecks()
 	}
 
 	t.Log("Add more historical candles")
@@ -242,17 +248,14 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 20, len(st.Candles))
-		sorted, valid := isCandlesSortedAndValid(st)
-		assert.True(t, sorted)
-		assert.True(t, valid)
+		basicChecks()
+
 		t.Log("Add duplicate candles")
 		{
 			e2 := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles[35:]}
 			st.onCandleHistoryHandler(&e2)
 			assert.Equal(t, 20, len(st.Candles))
-			sorted, valid := isCandlesSortedAndValid(st)
-			assert.True(t, sorted)
-			assert.True(t, valid)
+			basicChecks()
 		}
 	}
 
@@ -262,9 +265,7 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 		for _, e := range events {
 			st.onCandleCloseHandler(e.(*CandleCloseEvent))
 			assert.Equal(t, 20, len(st.Candles))
-			sorted, valid := isCandlesSortedAndValid(st)
-			assert.True(t, sorted)
-			assert.True(t, valid)
+			basicChecks()
 
 		}
 	}
@@ -274,9 +275,7 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 		prevLastTime := st.Candles[len(st.Candles)-1].Datetime
 		st.onCandleCloseHandler(nil)
 		assert.Equal(t, 20, len(st.Candles))
-		sorted, valid := isCandlesSortedAndValid(st)
-		assert.True(t, sorted)
-		assert.True(t, valid)
+		basicChecks()
 		assert.Equal(t, prevLastTime, st.Candles[len(st.Candles)-1].Datetime)
 	}
 
@@ -285,10 +284,55 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 		prevLastTime := st.Candles[len(st.Candles)-1].Datetime
 		st.onCandleCloseHandler(&CandleCloseEvent{Candle: nil})
 		assert.Equal(t, 20, len(st.Candles))
-		sorted, valid := isCandlesSortedAndValid(st)
-		assert.True(t, sorted)
-		assert.True(t, valid)
+		basicChecks()
 		assert.Equal(t, prevLastTime, st.Candles[len(st.Candles)-1].Datetime)
 	}
+
+}
+
+
+func TestBasicStrategy_onCandleOpenHandler(t *testing.T){
+	st := newTestBasicStrategy()
+	t.Log("Put some historical candles")
+	{
+		candles := genCandleArray(15)
+		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
+		st.onCandleHistoryHandler(&e)
+		assert.Equal(t, candles[13].Open, st.LastCandleOpen())
+
+	}
+	t.Log("Add realtime candle close events")
+	{
+		candle := &marketdata.Candle{Open:200.0, Datetime:time.Now().Add(time.Hour*time.Duration(200))}
+		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
+		assert.Equal(t, 200.0, st.LastCandleOpen())
+
+		candle = &marketdata.Candle{Open:299.0, Datetime:time.Now().Add(time.Hour*time.Duration(-200))}
+		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
+		assert.Equal(t, 200.0, st.LastCandleOpen())
+
+	}
+
+	t.Log("Put realtime candle open events")
+	{
+		e := CandleOpenEvent{Price:500, CandleTime:time.Now().Add(time.Hour*time.Duration(255))}
+		st.onCandleOpenHandler(&e)
+		assert.Equal(t, 500.0, st.LastCandleOpen())
+
+		e = CandleOpenEvent{Price:999, CandleTime:time.Now().Add(time.Hour*time.Duration(200))}
+		st.onCandleOpenHandler(&e)
+		assert.Equal(t, 500.0, st.LastCandleOpen())
+
+		candle := &marketdata.Candle{Open:15.0, Datetime:time.Now().Add(time.Hour*time.Duration(600))}
+		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
+		assert.Equal(t, 15.0, st.LastCandleOpen())
+
+		candle = &marketdata.Candle{Open:19.0, Datetime:time.Now().Add(time.Hour*time.Duration(100))}
+		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
+		assert.Equal(t, 15.0, st.LastCandleOpen())
+	}
+
+
+
 
 }

@@ -28,14 +28,16 @@ type IStrategy interface {
 }
 
 type BasicStrategy struct {
-	Symbol          string
-	Name            string
-	NPeriods        int
-	closedTrades    []*Trade
-	currentTrade    *Trade
-	Ticks           marketdata.TickArray
-	Candles         marketdata.CandleArray
-	generatedEvents []*event
+	Symbol             string
+	Name               string
+	NPeriods           int
+	closedTrades       []*Trade
+	currentTrade       *Trade
+	Ticks              marketdata.TickArray
+	Candles            marketdata.CandleArray
+	lastCandleOpen     float64
+	lastCandleOpenTime time.Time
+	generatedEvents    []*event
 }
 
 //Strategy API calls
@@ -76,6 +78,10 @@ func (b *BasicStrategy) CancelOrder(ordID string) {
 
 }
 
+func (b *BasicStrategy) LastCandleOpen() float64 {
+	return b.lastCandleOpen
+}
+
 func (b *BasicStrategy) TickIsValid(t *marketdata.Tick) bool {
 	return true
 }
@@ -95,12 +101,24 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) []*event {
 	}
 
 	b.putNewCandle(e.Candle)
+	if len(b.Candles) < b.NPeriods {
+		return nil
+	}
 	b.OnCandleClose()
 	return b.flushEvents()
 
 }
 
 func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) []*event {
+	if e == nil {
+		return nil
+	}
+
+	if !e.CandleTime.Before(b.lastCandleOpenTime) {
+		b.lastCandleOpen = e.Price
+		b.lastCandleOpenTime = e.CandleTime
+	}
+
 	b.OnCandleOpen()
 	return b.flushEvents()
 
@@ -144,6 +162,8 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 		b.Candles = checkedCandles
 	}
 
+	b.updateLastCandleOpen()
+
 	return nil
 }
 
@@ -156,6 +176,9 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) []*event {
 	}
 
 	b.putNewTick(e.Tick)
+	if len(b.Ticks) < b.NPeriods {
+		return nil
+	}
 	b.OnTick()
 	return b.flushEvents()
 }
@@ -265,6 +288,7 @@ func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {
 
 	if len(b.Candles) < b.NPeriods {
 		b.Candles = append(b.Candles, candle)
+		b.updateLastCandleOpen()
 		return
 	}
 	b.Candles = append(b.Candles[1:], candle)
@@ -275,6 +299,7 @@ func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {
 		})
 	}
 
+	b.updateLastCandleOpen()
 	return
 }
 
@@ -299,6 +324,18 @@ func (b *BasicStrategy) putNewTick(tick *marketdata.Tick) {
 		})
 	}
 	return
+}
+
+func (b *BasicStrategy) updateLastCandleOpen() {
+	if len(b.Candles) == 0 {
+		return
+	}
+	lastCandleInHist := b.Candles[len(b.Candles)-1]
+	if lastCandleInHist.Datetime.After(b.lastCandleOpenTime) {
+		b.lastCandleOpen = lastCandleInHist.Open
+		b.lastCandleOpenTime = lastCandleInHist.Datetime
+	}
+
 }
 
 func (b *BasicStrategy) ticks() marketdata.TickArray {

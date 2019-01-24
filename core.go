@@ -64,7 +64,7 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 	}
 
 	if c.BrokerConnector.IsSimulated() {
-		genEvents := c.BrokerConnector.OnCandleOpen(e.Candle)
+		genEvents := c.BrokerConnector.OnCandleOpen(e.Price)
 		c.PutMultiply(genEvents)
 	}
 

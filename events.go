@@ -15,7 +15,8 @@ type event interface {
 type CandleOpenEvent struct {
 	Symbol string
 	Time   time.Time
-	Candle *marketdata.Candle
+	Price float64
+	CandleTime time.Time
 }
 
 func (c *CandleOpenEvent) getName() string {
