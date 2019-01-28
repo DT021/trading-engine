@@ -62,6 +62,8 @@ type Trade struct {
 	Qty             int
 	Type            TradeType
 	OpenPrice       float64
+	OpenValue       float64
+	MarketValue     float64
 	ClosePrice      float64
 	OpenTime        time.Time
 	CloseTime       time.Time
@@ -77,11 +79,11 @@ type Trade struct {
 	Id              string
 }
 
-func newEmptyTrade(symbol string, id string) *Trade{
-	trade := Trade{Symbol:symbol, Qty:0, Type:FlatTrade, OpenPrice: math.NaN(), ClosePrice:math.NaN(), Id:id,
-	ClosedPnL:0, OpenPnL:0, FilledOrders:make(map[string]*Order), CanceledOrders:make(map[string]*Order),
-	NewOrders:make(map[string]*Order),ConfirmedOrders:make(map[string]*Order), RejectedOrders:make(map[string]*Order),
-	AllOrdersIDMap:make(map[string]struct{})}
+func newEmptyTrade(symbol string, id string) *Trade {
+	trade := Trade{Symbol: symbol, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(), ClosePrice: math.NaN(), Id: id,
+		ClosedPnL: 0, OpenPnL: 0, FilledOrders: make(map[string]*Order), CanceledOrders: make(map[string]*Order),
+		NewOrders: make(map[string]*Order), ConfirmedOrders: make(map[string]*Order), RejectedOrders: make(map[string]*Order),
+		AllOrdersIDMap: make(map[string]struct{})}
 
 	return &trade
 }
