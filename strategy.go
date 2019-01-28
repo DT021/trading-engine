@@ -53,7 +53,7 @@ func (b *BasicStrategy) OnTick() {
 
 }
 
-func (b *BasicStrategy) OpenOrders() []*Order {
+func (b *BasicStrategy) OpenOrders() map[string]*Order {
 	return b.currentTrade.ConfirmedOrders
 }
 
@@ -224,6 +224,7 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 
 //Order events
 
+//onOrderFillHandler updates current state of order and current position
 func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) []*event {
 	b.updatePositions(e)
 	return b.flushEvents()
