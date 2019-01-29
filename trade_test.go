@@ -105,18 +105,29 @@ func TestTrade_OrdersFlow(t *testing.T) {
 }
 
 func newValidOrder(price float64, side OrderSide, qty int, id string) *Order {
-	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price}
+	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price, ExecPrice: price, State: NewOrder}
 	return &o
 }
 
 func TestTrade_OrdersExecution(t *testing.T) {
-	trade := newEmptyTrade("Test", "TestID")
+	trade := newEmptyTrade("Test")
 
 	t.Log("Add few valid orders - long and short")
 	{
-		trade.putNewOrder(newValidOrder(20, OrderBuy, 100, "1"))
-		trade.putNewOrder(newValidOrder(15, OrderBuy, 200, "2"))
-		trade.putNewOrder(newValidOrder(25, OrderSell, 100, "3"))
+		err := trade.putNewOrder(newValidOrder(20, OrderBuy, 100, "1"))
+		if err != nil {
+			t.Error(err)
+		}
+
+		err = trade.putNewOrder(newValidOrder(15, OrderBuy, 200, "2"))
+		if err != nil {
+			t.Error(err)
+		}
+
+		err = trade.putNewOrder(newValidOrder(25, OrderSell, 100, "3"))
+		if err != nil {
+			t.Error(err)
+		}
 
 		trade.confirmOrder("1")
 		trade.confirmOrder("2")
@@ -139,11 +150,11 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		assert.Equal(t, LongTrade, trade.Type)
 		assert.Equal(t, 100, trade.Qty)
-		assert.Equal(t, 20, trade.OpenPrice)
-		assert.Equal(t, 20*100, trade.OpenValue)
-		assert.Equal(t, 20*100, trade.MarketValue)
+		assert.Equal(t, 20.0, trade.OpenPrice)
+		assert.Equal(t, 20.0*100, trade.OpenValue)
+		assert.Equal(t, 20.0*100, trade.MarketValue)
 		assert.Equal(t, execTime0, trade.OpenTime)
-		assert.Equal(t, 0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.OpenPnL)
 
 		execTime := time.Now().Add(20 * time.Minute)
 		trade.executeOrder("2", 100, execTime)
@@ -155,9 +166,9 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 200, trade.Qty)
 		assert.Equal(t, 17.5, trade.OpenPrice)
 		assert.Equal(t, 17.5*200, trade.OpenValue)
-		assert.Equal(t, 17.5*200, trade.MarketValue)
+		assert.Equal(t, 15.0*200, trade.MarketValue)
 		assert.Equal(t, execTime0, trade.OpenTime)
-		assert.Equal(t, -500, trade.OpenPnL)
+		assert.Equal(t, -500.0, trade.OpenPnL)
 
 		execTime = time.Now().Add(22 * time.Minute)
 		trade.executeOrder("2", 100, execTime)
@@ -167,9 +178,9 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		assert.Equal(t, LongTrade, trade.Type)
 		assert.Equal(t, 300, trade.Qty)
-		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice))
+		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice*100)/100)
 		assert.Equal(t, execTime0, trade.OpenTime)
-		assert.Equal(t, -500, trade.OpenPnL)
+		assert.Equal(t, -500.0, trade.OpenPnL)
 
 	}
 
@@ -183,14 +194,13 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		assert.Equal(t, LongTrade, trade.Type)
 		assert.Equal(t, 200, trade.Qty)
-		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice))
-		openPnl := (25.0-trade.OpenPrice)*200
+		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice*100)/100)
+		openPnl := (25.0 - trade.OpenPrice) * 200
 		assert.Equal(t, openPnl, trade.OpenPnL)
-		closedPnL := (25-trade.OpenPrice)*100
+		closedPnL := (25 - trade.OpenPrice) * 100
 		assert.Equal(t, closedPnL, trade.ClosedPnL)
 		assert.Equal(t, trade.OpenPrice*200, trade.OpenValue)
-		assert.Equal(t, 25*200, trade.MarketValue)
-
+		assert.Equal(t, 25.0*200, trade.MarketValue)
 
 		trade.putNewOrder(newValidOrder(25, OrderSell, 400, "4"))
 		trade.confirmOrder("4")
@@ -209,9 +219,9 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		execTime = time.Now().Add(20 * time.Minute)
 
-		newTrade, err:= trade.executeOrder("4", 400, execTime)
+		newTrade, err := trade.executeOrder("4", 400, execTime)
 
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 			t.Fail()
 		}
@@ -224,26 +234,21 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 0, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
 		assert.Equal(t, 4, len(trade.FilledOrders))
-		assert.Equal(t, 0, trade.OpenValue)
-		assert.Equal(t, 0, trade.MarketValue)
+		assert.Equal(t, 0.0, trade.OpenValue)
+		assert.Equal(t, 0.0, trade.MarketValue)
 
 		assert.Equal(t, 200, newTrade.Qty)
 		assert.Equal(t, ShortTrade, newTrade.Type)
 		assert.Equal(t, 3, len(newTrade.ConfirmedOrders))
 		assert.Equal(t, 1, len(newTrade.FilledOrders))
 		assert.Equal(t, 0, len(newTrade.NewOrders))
-		assert.Equal(t, 25, newTrade.OpenPrice)
+		assert.Equal(t, 25.0, newTrade.OpenPrice)
 		assert.Equal(t, execTime, newTrade.OpenTime)
 		assert.Equal(t, 4, len(newTrade.AllOrdersIDMap))
-		assert.Equal(t, 0, newTrade.ClosedPnL)
-		assert.Equal(t, 0, newTrade.OpenPnL)
-		assert.Equal(t, 25*200, newTrade.OpenValue)
-		assert.Equal(t, 25*200, newTrade.MarketValue)
-
-
-
-
-
+		assert.Equal(t, 0.0, newTrade.ClosedPnL)
+		assert.Equal(t, 0.0, newTrade.OpenPnL)
+		assert.Equal(t, 25.0*200, newTrade.OpenValue)
+		assert.Equal(t, 25.0*200, newTrade.MarketValue)
 
 	}
 

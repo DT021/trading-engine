@@ -46,7 +46,7 @@ func makePointsDollar(n []Trade) plotter.XYs {
 	pts := make(plotter.XYs, len(n))
 	equity := 0.0
 	for i := range pts {
-		equity += (n[i].ClosePrice - n[i].OpenPrice) * float64(n[i].Qty)
+		equity += n[i].ClosedPnL
 		pts[i].X = float64(i)
 		pts[i].Y = equity
 	}
@@ -57,7 +57,7 @@ func makePointsPercent(n []Trade) plotter.XYs {
 	pts := make(plotter.XYs, len(n))
 	equity := 0.0
 	for i := range pts {
-		equity += (n[i].ClosePrice - n[i].OpenPrice) * 100.0 / n[i].OpenPrice
+		equity += n[i].ClosedPnL //Todo this is not percent
 		pts[i].X = float64(i)
 		pts[i].Y = equity
 	}

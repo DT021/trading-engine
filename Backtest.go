@@ -88,7 +88,7 @@ func (bt *Backtest) checkExecutions() error {
 
 			o.State = "Filled"
 			bt.Context.OpenPosition.CloseTime = bt.Context.Candle(0).Datetime
-			bt.Context.OpenPosition.ClosePrice = bt.Context.Candle(0).Open
+			//bt.Context.OpenPosition.ClosePrice = bt.Context.Candle(0).Open
 			bt.Context.OpenPosition.Type = "Closed"
 
 			bt.ClosedPositions = append(bt.ClosedPositions, &bt.Context.OpenPosition)
