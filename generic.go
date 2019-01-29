@@ -82,12 +82,42 @@ func (o *Order) isValid() bool {
 		} else {
 			return false
 		}
-
 	}
 
 	return true
 }
 
+func (o *Order) addExecution(price float64, qty int) error {
+	if o.State == FilledOrder {
+		return errors.New("Can't update order. Order is already filled")
+	}
+
+	if math.IsNaN(price) {
+		return errors.New("Can't update order. Execution price is NaN")
+	}
+	if price <= 0 {
+		return errors.New("Can't update order. Price less or equal zero")
+	}
+	if qty <= 0 {
+		return errors.New("Can't update order. Execution qty is lezz or equal to zero")
+	}
+	if qty+o.ExecQty > o.Qty {
+		return errors.New("Can't update order. Execution quantity is greater than lvs qty")
+	}
+	avgExecPrice := price
+	if o.ExecQty > 0 {
+		avgExecPrice = (float64(o.ExecQty)*o.ExecPrice + price*float64(qty)) / float64(o.ExecQty+qty)
+	}
+
+	o.ExecQty += qty
+	o.ExecPrice = avgExecPrice
+	if o.ExecQty == o.Qty {
+		o.State = FilledOrder
+	} else {
+		o.State = PartialFilledOrder
+	}
+	return nil
+}
 
 func (o *Order) Created() bool {
 	if o.Type != "" && o.Price != 0 {
@@ -230,14 +260,15 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 				return nil, errors.New("Can't execute order. ID already found in FilledOrders")
 			}
 		}
-		order.State = FilledOrder
+
 		t.FilledOrders[id] = order
 		delete(t.ConfirmedOrders, id)
-	} else {
-		order.State = PartialFilledOrder
 	}
 
-	order.ExecQty += qty
+	err := order.addExecution(execPrice, qty)
+	if err != nil {
+		return nil, err
+	}
 
 	//Position update logic starts here
 	switch t.Type {
