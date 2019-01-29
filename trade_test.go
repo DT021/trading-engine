@@ -19,9 +19,6 @@ func TestOrder_isValid(t *testing.T){
 		order := newTestOrder(10, OrderBuy, 100, "1")
 		assert.True(t, order.isValid())
 	}
-
-
-
 }
 
 func TestTrade_OrdersFlow(t *testing.T) {
@@ -163,7 +160,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	t.Log("Execute long orders")
 	{
 		execTime0 := time.Now()
-		trade.executeOrder("1", 100, execTime0)
+		trade.executeOrder("1", 100, 20, execTime0)
 		assert.Equal(t, 2, len(trade.ConfirmedOrders))
 		assert.Equal(t, 1, len(trade.FilledOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -177,7 +174,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 0.0, trade.OpenPnL)
 
 		execTime := time.Now().Add(20 * time.Minute)
-		trade.executeOrder("2", 100, execTime)
+		trade.executeOrder("2", 100, 15,  execTime)
 		assert.Equal(t, 2, len(trade.ConfirmedOrders))
 		assert.Equal(t, 1, len(trade.FilledOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -191,7 +188,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, -500.0, trade.OpenPnL)
 
 		execTime = time.Now().Add(22 * time.Minute)
-		trade.executeOrder("2", 100, execTime)
+		trade.executeOrder("2", 100, 15,  execTime)
 		assert.Equal(t, 1, len(trade.ConfirmedOrders))
 		assert.Equal(t, 2, len(trade.FilledOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -207,7 +204,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	t.Log("Execute short orders")
 	{
 		execTime := time.Now().Add(20 * time.Minute)
-		trade.executeOrder("3", 100, execTime)
+		trade.executeOrder("3", 100, 25, execTime)
 		assert.Equal(t, 0, len(trade.ConfirmedOrders))
 		assert.Equal(t, 3, len(trade.FilledOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -239,7 +236,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		execTime = time.Now().Add(20 * time.Minute)
 
-		newTrade, err := trade.executeOrder("4", 400, execTime)
+		newTrade, err := trade.executeOrder("4", 400, 25, execTime)
 
 		if err != nil {
 			t.Error(err)

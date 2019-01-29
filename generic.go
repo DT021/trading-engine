@@ -88,9 +88,6 @@ func (o *Order) isValid() bool {
 	return true
 }
 
-func NewEmptyOrder() {
-
-}
 
 func (o *Order) Created() bool {
 	if o.Type != "" && o.Price != 0 {
@@ -209,14 +206,14 @@ func (t *Trade) cancelOrder(id string) error {
 
 //executeOrder by given id and qty. If order qty was large than current position open qty then position will get state
 //ClosedTrade and pointer to new opened position will be returned. All position values will be updated
-func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, error) {
+func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime time.Time) (*Trade, error) {
 
 	order, ok := t.ConfirmedOrders[id]
 	if !ok {
 		return nil, errors.New("Can't execute order. Id not found in ConfirmedOrders")
 	}
 
-	if math.IsNaN(order.ExecPrice) || order.ExecPrice == 0 {
+	if math.IsNaN(execPrice) || execPrice == 0 {
 		panic("Panic: tried to execute order with zero or NaN execution price")
 	}
 
@@ -264,9 +261,9 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 		if order.Side == OrderSell {
 			//Add to open short
 			t.Qty += qty
-			t.OpenValue += float64(qty) * order.ExecPrice
+			t.OpenValue += float64(qty) * execPrice
 			t.OpenPrice = t.OpenValue / float64(t.Qty)
-			t.MarketValue = float64(t.Qty) * order.ExecPrice
+			t.MarketValue = float64(t.Qty) * execPrice
 			t.OpenPnL = -(t.MarketValue - t.OpenValue)
 			return nil, nil
 		} else {
@@ -274,16 +271,16 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 			if qty < t.Qty {
 				//Partial cover
 				t.Qty -= qty
-				t.ClosedPnL += -(order.ExecPrice - t.OpenPrice) * float64(qty)
+				t.ClosedPnL += -(execPrice - t.OpenPrice) * float64(qty)
 				t.OpenValue = t.OpenPrice * float64(t.Qty)
-				t.MarketValue = float64(t.Qty) * order.ExecPrice
+				t.MarketValue = float64(t.Qty) * execPrice
 				t.OpenPnL = -(t.MarketValue - t.OpenValue)
 				return nil, nil
 			} else {
 				if qty == t.Qty {
 					//Complete cover and return new FLAT position
 					t.Qty -= qty
-					t.ClosedPnL += -(order.ExecPrice - t.OpenPrice) * float64(qty)
+					t.ClosedPnL += -(execPrice - t.OpenPrice) * float64(qty)
 					t.OpenValue = 0
 					t.MarketValue = 0
 					t.OpenPnL = 0
@@ -302,7 +299,7 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 				} else {
 					//Complete cover and open new LONG position
 					newQty := qty - t.Qty
-					t.ClosedPnL += -(order.ExecPrice - t.OpenPrice) * float64(t.Qty)
+					t.ClosedPnL += -(execPrice - t.OpenPrice) * float64(t.Qty)
 					t.Qty = 0
 					t.OpenValue = 0
 					t.MarketValue = 0
@@ -311,7 +308,7 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 					t.CloseTime = datetime
 
 					newTrade := Trade{Symbol: t.Symbol, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: LongTrade}
-					newTrade.OpenPrice = order.ExecPrice
+					newTrade.OpenPrice = execPrice
 					newTrade.OpenValue = newTrade.OpenPrice * float64(newTrade.Qty)
 					newTrade.MarketValue = newTrade.OpenValue
 
@@ -332,25 +329,25 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 		if order.Side == OrderBuy {
 			//Add to open LONG
 			t.Qty += qty
-			t.OpenValue += float64(qty) * order.ExecPrice
+			t.OpenValue += float64(qty) * execPrice
 			t.OpenPrice = t.OpenValue / float64(t.Qty)
-			t.MarketValue = float64(t.Qty) * order.ExecPrice
+			t.MarketValue = float64(t.Qty) * execPrice
 			t.OpenPnL = t.MarketValue - t.OpenValue
 			return nil, nil
 		} else {
 			if qty < t.Qty {
 				//Partial cover LONG
 				t.Qty -= qty
-				t.ClosedPnL += (order.ExecPrice - t.OpenPrice) * float64(qty)
+				t.ClosedPnL += (execPrice - t.OpenPrice) * float64(qty)
 				t.OpenValue = t.OpenPrice * float64(t.Qty)
-				t.MarketValue = float64(t.Qty) * order.ExecPrice
+				t.MarketValue = float64(t.Qty) * execPrice
 				t.OpenPnL = t.MarketValue - t.OpenValue
 				return nil, nil
 			} else {
 				if qty == t.Qty {
 					//Complete cover LONG and return new FLAT position
 					t.Qty -= qty
-					t.ClosedPnL += (order.ExecPrice - t.OpenPrice) * float64(qty)
+					t.ClosedPnL += (execPrice - t.OpenPrice) * float64(qty)
 					t.OpenValue = 0
 					t.MarketValue = 0
 					t.OpenPnL = 0
@@ -369,7 +366,7 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 				} else {
 					//Complete cover LONG and open new SHORT position
 					newQty := qty - t.Qty
-					t.ClosedPnL += (order.ExecPrice - t.OpenPrice) * float64(t.Qty)
+					t.ClosedPnL += (execPrice - t.OpenPrice) * float64(t.Qty)
 					t.Qty = 0
 					t.OpenValue = 0
 					t.MarketValue = 0
@@ -378,7 +375,7 @@ func (t *Trade) executeOrder(id string, qty int, datetime time.Time) (*Trade, er
 					t.CloseTime = datetime
 
 					newTrade := Trade{Symbol: t.Symbol, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: ShortTrade}
-					newTrade.OpenPrice = order.ExecPrice
+					newTrade.OpenPrice = execPrice
 					newTrade.OpenValue = newTrade.OpenPrice * float64(newTrade.Qty)
 					newTrade.MarketValue = newTrade.OpenValue
 					newTrade.OpenPnL = 0
