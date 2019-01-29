@@ -8,33 +8,57 @@ import (
 	"math"
 )
 
+func newTestOrder(price float64, side OrderSide, qty int, id string) *Order {
+	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price, ExecPrice: price, State: NewOrder, Type: LimitOrder}
+	return &o
+}
+
+func TestOrder_isValid(t *testing.T){
+	t.Log("Check test order creation method")
+	{
+		order := newTestOrder(10, OrderBuy, 100, "1")
+		assert.True(t, order.isValid())
+	}
+
+
+
+}
+
 func TestTrade_OrdersFlow(t *testing.T) {
 	trade := Trade{Symbol: "Test"}
 	t.Log("Put new order")
 	{
-		o := Order{Symbol: "Test", Id: "1", State: NewOrder}
-		trade.putNewOrder(&o)
+
+		o := newTestOrder(20, OrderBuy, 100, "1")
+		err:=trade.putNewOrder(o)
+		if err!=nil{
+			t.Error(err)
+		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 	}
 
 	t.Log("Put orders with wrong state and symbol")
 	{
-		o := Order{Symbol: "Test", Id: "2", State: FilledOrder}
-		trade.putNewOrder(&o)
+		o := newTestOrder(20, OrderBuy, 100, "2")
+		o.State = FilledOrder
+
+		trade.putNewOrder(o)
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 
-		o = Order{Symbol: "Test2", Id: "55", State: NewOrder}
-		trade.putNewOrder(&o)
+		//o = Order{Symbol: "Test2", Id: "55", State: NewOrder}
+		o = newTestOrder(20, OrderBuy, 100, "55")
+		o.Symbol = "Test2"
+		trade.putNewOrder(o)
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 	}
 
 	t.Log("Put order with that already in NewOrders map")
 	{
-		o := Order{Symbol: "Test", Id: "1", State: NewOrder}
-		err := trade.putNewOrder(&o)
+		o := newTestOrder(20, OrderBuy, 100, "1")
+		err := trade.putNewOrder(o)
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 		assert.Error(t, err, "Trying to add order in NewOrders with the ID that already in map")
@@ -49,8 +73,9 @@ func TestTrade_OrdersFlow(t *testing.T) {
 			if i > 5 {
 				break
 			}
-			o := Order{Symbol: "Test", Id: strconv.Itoa(i), State: NewOrder}
-			trade.putNewOrder(&o)
+
+			o := newTestOrder(20, OrderBuy, 100, strconv.Itoa(i))
+			trade.putNewOrder(o)
 
 		}
 
@@ -77,16 +102,16 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 	t.Log("Add order with ID that already was in NewOrders")
 	{
-		o := Order{Symbol: "Test", Id: "1", State: NewOrder}
-		trade.putNewOrder(&o)
+		o := newTestOrder(20, OrderBuy, 100, "1")
+		trade.putNewOrder(o)
 
 		assert.Equal(t, 0, len(trade.NewOrders))
 	}
 
 	t.Log("Add order, confirm it and cancel")
 	{
-		o := Order{Symbol: "Test", Id: "10", State: NewOrder}
-		trade.putNewOrder(&o)
+		o := newTestOrder(20, OrderBuy, 100, "10")
+		trade.putNewOrder(o)
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 		assert.Equal(t, 5, len(trade.ConfirmedOrders))
@@ -104,27 +129,22 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	}
 }
 
-func newValidOrder(price float64, side OrderSide, qty int, id string) *Order {
-	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price, ExecPrice: price, State: NewOrder}
-	return &o
-}
-
 func TestTrade_OrdersExecution(t *testing.T) {
 	trade := newEmptyTrade("Test")
 
 	t.Log("Add few valid orders - long and short")
 	{
-		err := trade.putNewOrder(newValidOrder(20, OrderBuy, 100, "1"))
+		err := trade.putNewOrder(newTestOrder(20, OrderBuy, 100, "1"))
 		if err != nil {
 			t.Error(err)
 		}
 
-		err = trade.putNewOrder(newValidOrder(15, OrderBuy, 200, "2"))
+		err = trade.putNewOrder(newTestOrder(15, OrderBuy, 200, "2"))
 		if err != nil {
 			t.Error(err)
 		}
 
-		err = trade.putNewOrder(newValidOrder(25, OrderSell, 100, "3"))
+		err = trade.putNewOrder(newTestOrder(25, OrderSell, 100, "3"))
 		if err != nil {
 			t.Error(err)
 		}
@@ -202,19 +222,19 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, trade.OpenPrice*200, trade.OpenValue)
 		assert.Equal(t, 25.0*200, trade.MarketValue)
 
-		trade.putNewOrder(newValidOrder(25, OrderSell, 400, "4"))
+		trade.putNewOrder(newTestOrder(25, OrderSell, 400, "4"))
 		trade.confirmOrder("4")
 
 		assert.Equal(t, 1, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
 
-		trade.putNewOrder(newValidOrder(20, OrderBuy, 100, "5"))
+		trade.putNewOrder(newTestOrder(20, OrderBuy, 100, "5"))
 		trade.confirmOrder("5")
 
-		trade.putNewOrder(newValidOrder(10, OrderBuy, 200, "6"))
+		trade.putNewOrder(newTestOrder(10, OrderBuy, 200, "6"))
 		trade.confirmOrder("6")
 
-		trade.putNewOrder(newValidOrder(40, OrderSell, 100, "7"))
+		trade.putNewOrder(newTestOrder(40, OrderSell, 100, "7"))
 		trade.confirmOrder("7")
 
 		execTime = time.Now().Add(20 * time.Minute)

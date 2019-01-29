@@ -12,9 +12,9 @@ type OrderState string
 type TradeType string
 
 const (
-	OrderBuy           OrderSide  = "B"
-	OrderSell          OrderSide  = "S"
-	EmptyOrder         OrderState = "EmptyOrder"
+	OrderBuy  OrderSide = "B"
+	OrderSell OrderSide = "S"
+
 	NewOrder           OrderState = "NewOrder"
 	ConfirmedOrder     OrderState = "ConfirmedOrder"
 	FilledOrder        OrderState = "FilledOrder"
@@ -45,6 +45,47 @@ type Order struct {
 	ExecPrice float64
 	Type      OrderType
 	Id        string
+}
+
+//isValid returns if order has right prices (NaN for market orders and specified for Limit and Stop)
+//valid order side, type, id and qty
+func (o *Order) isValid() bool {
+	if o.Symbol == "" {
+		return false
+	}
+
+	if o.Id == "" {
+		return false
+	}
+
+	if o.Qty <= 0 {
+		return false
+	}
+
+	if o.State != NewOrder && o.State != ConfirmedOrder && o.State != FilledOrder && o.State != PartialFilledOrder && o.State != CanceledOrder {
+		return false
+	}
+
+	if o.Side != OrderBuy && o.Side != OrderSell {
+		return false
+	}
+
+	if o.Type == LimitOrder || o.Type == LimitOnClose || o.Type == LimitOnOpen || o.Type == StopOrder {
+		if math.IsNaN(o.Price) || o.Price == 0 {
+			return false
+		}
+	} else {
+		if o.Type == MarketOrder || o.Type == MarketOnClose || o.Type == MarketOnOpen {
+			if !math.IsNaN(o.Price) {
+				return false
+			}
+		} else {
+			return false
+		}
+
+	}
+
+	return true
 }
 
 func NewEmptyOrder() {
@@ -92,6 +133,9 @@ func newEmptyTrade(symbol string) *Trade {
 //putNewOrder inserts order in NewOrders map. If there are order with same id in all orders
 //map it will return error. There can't few orders even in different states with the same id
 func (t *Trade) putNewOrder(o *Order) error {
+	if !o.isValid() {
+		return errors.New("Trying to put invalid order")
+	}
 	if o.Symbol != t.Symbol {
 		return errors.New("Can't put new order. Trade and Order have different symbols")
 	}
