@@ -536,7 +536,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, execTimeEnd, newTrade.CloseTime)
 
 		expectedClosedPnL = 25.0*200 + 100*20.0 - 15.0*100 - 20*100 - 25.0*100
-		assert.Equal(t, math.Floor(expectedClosedPnL*100), math.Floor(newTrade.ClosedPnL*100))
+		assert.True(t, math.Abs(expectedClosedPnL-newTrade.ClosedPnL) < 0.0002)
 
 		assert.Equal(t, FlatTrade, p.Type)
 		assert.Equal(t, 0, p.Qty)
@@ -549,8 +549,6 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		err = newTrade.putNewOrder(newTestOrder(10, OrderBuy, 100, "200"))
 		assert.NotNil(t, err)
 		assert.Equal(t, 0, len(newTrade.NewOrders))
-
-		//TODO сломалось. Надо еще раз проверить putNewOrder
 
 	}
 

@@ -160,6 +160,9 @@ func newEmptyTrade(symbol string) *Trade {
 //putNewOrder inserts order in NewOrders map. If there are order with same id in all orders
 //map it will return error. There can't few orders even in different states with the same id
 func (t *Trade) putNewOrder(o *Order) error {
+	if t.Type == ClosedTrade {
+		return errors.New("Can't put order to closed trade")
+	}
 	if !o.isValid() {
 		return errors.New("Trying to put invalid order")
 	}
