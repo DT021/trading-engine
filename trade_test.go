@@ -237,6 +237,17 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 	}
+
+	t.Log("Put new order and reject it")
+	{
+		trade.putNewOrder(newTestOrder(10, OrderSell, 500, "888"))
+		err:=trade.rejectOrder("888", "Not shortable")
+		assert.Nil(t, err)
+		assert.Len(t, trade.RejectedOrders, 1)
+		assert.Len(t, trade.NewOrders, 0)
+		assert.Equal(t, RejectedOrder, trade.RejectedOrders["888"].State)
+		assert.Equal(t, "Not shortable", trade.RejectedOrders["888"].Mark1)
+	}
 }
 
 func TestTrade_OrdersExecution(t *testing.T) {
@@ -549,6 +560,20 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		err = newTrade.putNewOrder(newTestOrder(10, OrderBuy, 100, "200"))
 		assert.NotNil(t, err)
 		assert.Equal(t, 0, len(newTrade.NewOrders))
+
+	}
+
+	t.Log("Check id, first price")
+	{
+		execTime := time.Now()
+		trade = newEmptyTrade("Test")
+		trade.putNewOrder(newTestOrder(10, OrderSell, 100, "22"))
+		trade.confirmOrder("22")
+		trade.executeOrder("22", 100, 22, execTime)
+
+		assert.Equal(t, "22", trade.Id)
+		assert.Equal(t, 22.0, trade.FirstPrice)
+
 
 	}
 

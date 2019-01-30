@@ -20,6 +20,7 @@ const (
 	FilledOrder        OrderState = "FilledOrder"
 	PartialFilledOrder OrderState = "PartialFilledOrder"
 	CanceledOrder      OrderState = "CanceledOrder"
+	RejectedOrder      OrderState = "RejectedOrder"
 
 	LimitOrder    OrderType = "LMT"
 	MarketOrder   OrderType = "MKT"
@@ -45,6 +46,8 @@ type Order struct {
 	ExecPrice float64
 	Type      OrderType
 	Id        string
+	Mark1     string
+	Mark2     string
 }
 
 //isValid returns if order has right prices (NaN for market orders and specified for Limit and Stop)
@@ -119,6 +122,40 @@ func (o *Order) addExecution(price float64, qty int) error {
 	return nil
 }
 
+func (o *Order) reject(reason string) error {
+	if o.State != NewOrder {
+		return errors.New("Can't reject order. It's not in status NewOrder")
+	}
+	if o.ExecQty > 0 {
+		return errors.New("Can't reject order. Already has executed qty. Status should be PartialFilled")
+	}
+
+	o.State = RejectedOrder
+	o.Mark1 = reason
+	return nil
+}
+
+func (o *Order) cancel() error {
+	if o.State == FilledOrder {
+		return errors.New("Can't cancel filled order")
+	}
+	if o.State == NewOrder {
+		return errors.New("Can't cancel new order.Should be confirmed")
+	}
+
+	o.State = CanceledOrder
+	return nil
+}
+
+func (o *Order) confirm() error {
+	if o.State != NewOrder {
+		return errors.New("Can't confirm order. State is not NewOrder")
+	}
+	o.State = ConfirmedOrder
+	return nil
+
+}
+
 func (o *Order) Created() bool {
 	if o.Type != "" && o.Price != 0 {
 		return true
@@ -126,10 +163,17 @@ func (o *Order) Created() bool {
 	return false
 }
 
+type TradeReturn struct {
+	OpenPnL   float64
+	ClosedPnL float64
+	Time      time.Time
+}
+
 type Trade struct {
 	Symbol      string
 	Qty         int
 	Type        TradeType
+	FirstPrice  float64
 	OpenPrice   float64
 	OpenValue   float64
 	MarketValue float64
@@ -143,6 +187,7 @@ type Trade struct {
 	ConfirmedOrders map[string]*Order
 	RejectedOrders  map[string]*Order
 	AllOrdersIDMap  map[string]struct{}
+	Returns         []*TradeReturn
 	ClosedPnL       float64
 	OpenPnL         float64
 	Id              string
@@ -204,7 +249,10 @@ func (t *Trade) confirmOrder(id string) error {
 			return errors.New("Can't confirm orders. ID already in ConfirmedOrders map")
 		}
 
-		order.State = ConfirmedOrder
+		err := order.confirm()
+		if err != nil {
+			return err
+		}
 		if len(t.ConfirmedOrders) == 0 {
 			t.ConfirmedOrders = make(map[string]*Order)
 		}
@@ -219,7 +267,10 @@ func (t *Trade) confirmOrder(id string) error {
 //specified id it will return error.
 func (t *Trade) cancelOrder(id string) error {
 	if order, ok := t.ConfirmedOrders[id]; ok {
-		order.State = CanceledOrder
+		err := order.cancel()
+		if err != nil {
+			return err
+		}
 		if len(t.CanceledOrders) == 0 {
 			t.CanceledOrders = make(map[string]*Order)
 
@@ -278,6 +329,7 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 	case FlatTrade:
 		t.Qty = qty
 		t.Id = order.Id
+		t.FirstPrice = execPrice
 		if order.Side == OrderBuy {
 			t.Type = LongTrade
 		} else {
@@ -432,6 +484,33 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 	return nil, nil
 }
 
+//rejectOrder by given ID with given reject reason. Find order in NewOrdes map, change status and move it
+//to RejectedOrders map
+func (t *Trade) rejectOrder(id string, reason string) error {
+	if order, ok := t.NewOrders[id]; ok {
+		err := order.reject(reason)
+		if err != nil {
+			return err
+		}
+		if len(t.RejectedOrders) == 0 {
+			t.RejectedOrders = make(map[string]*Order)
+
+		} else {
+			if _, ok := t.RejectedOrders[id]; ok {
+				return errors.New("Order found both in confirmed and rejected map")
+			}
+		}
+
+		t.RejectedOrders[id] = order
+		delete(t.NewOrders, id)
+	} else {
+		return errors.New("Can't reject order. Not found in confirmed orders")
+	}
+	return nil
+}
+
+//updateAllOrdersIDMap updates AllOrdersIDMap from orders in other maps
+//It can be used when we transfer orders from one position to another one
 func (t *Trade) updateAllOrdersIDMap() {
 	t.AllOrdersIDMap = make(map[string]struct{})
 	for _, o := range t.NewOrders {

@@ -57,7 +57,7 @@ func makePointsPercent(n []Trade) plotter.XYs {
 	pts := make(plotter.XYs, len(n))
 	equity := 0.0
 	for i := range pts {
-		equity += n[i].ClosedPnL //Todo this is not percent
+		equity += n[i].ClosedPnL * 100 / n[i].FirstPrice
 		pts[i].X = float64(i)
 		pts[i].Y = equity
 	}
