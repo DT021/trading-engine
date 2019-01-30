@@ -241,7 +241,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	t.Log("Put new order and reject it")
 	{
 		trade.putNewOrder(newTestOrder(10, OrderSell, 500, "888"))
-		err:=trade.rejectOrder("888", "Not shortable")
+		err := trade.rejectOrder("888", "Not shortable")
 		assert.Nil(t, err)
 		assert.Len(t, trade.RejectedOrders, 1)
 		assert.Len(t, trade.NewOrders, 0)
@@ -574,7 +574,106 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, "22", trade.Id)
 		assert.Equal(t, 22.0, trade.FirstPrice)
 
+	}
+
+}
+
+func TestTrade_updatePnL(t *testing.T) {
+	trade := newEmptyTrade("Test")
+
+	t.Log("Add execution to a trade")
+	{
+		trade.putNewOrder(newTestOrder(10, OrderSell, 100, "1"))
+		trade.confirmOrder("1")
+		trade.executeOrder("1", 100, 10, time.Now())
+
+		assert.Len(t, trade.FilledOrders, 1)
+		assert.Equal(t, ShortTrade, trade.Type)
 
 	}
 
+	t.Log("Add updates")
+	{
+		trade.updatePnL(11, time.Now())
+		assert.Equal(t, -100.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+		assert.Len(t, trade.Returns, 1)
+		assert.Equal(t, -100.0, trade.Returns[0].OpenPnL)
+
+		trade.updatePnL(9, time.Now())
+		assert.Equal(t, 100.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+		assert.Len(t, trade.Returns, 2)
+		assert.Equal(t, -100.0, trade.Returns[0].OpenPnL)
+		assert.Equal(t, 100.0, trade.Returns[1].OpenPnL)
+
+		trade.updatePnL(10, time.Now())
+		assert.Equal(t, 0.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+		assert.Len(t, trade.Returns, 3)
+		assert.Equal(t, -100.0, trade.Returns[0].OpenPnL)
+		assert.Equal(t, 100.0, trade.Returns[1].OpenPnL)
+		assert.Equal(t, 0.0, trade.Returns[2].OpenPnL)
+
+	}
+
+	t.Log("Close trade and add updates to it")
+	{
+		trade.putNewOrder(newTestOrder(5, OrderBuy, 100, "2"))
+		trade.confirmOrder("2")
+		trade.executeOrder("2", 100, 5, time.Now())
+
+		assert.Len(t, trade.FilledOrders, 2)
+		assert.Equal(t, ClosedTrade, trade.Type)
+
+		assert.Equal(t, 500.0, trade.ClosedPnL)
+		assert.Equal(t, 0.0, trade.OpenPnL)
+		assert.Len(t, trade.Returns, 3)
+
+		err := trade.updatePnL(10, time.Now())
+
+		assert.NotNil(t, err)
+
+		assert.Equal(t, 500.0, trade.ClosedPnL)
+		assert.Equal(t, 0.0, trade.OpenPnL)
+		assert.Len(t, trade.Returns, 3)
+
+	}
+
+
+	t.Log("Create long trade and check updates")
+	{
+		trade = newEmptyTrade("Test")
+		trade.putNewOrder(newTestOrder(10, OrderBuy, 100, "1"))
+		trade.confirmOrder("1")
+		trade.executeOrder("1", 100, 11, time.Now())
+
+		assert.Equal(t, LongTrade, trade.Type)
+		assert.Equal(t, 0.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+		assert.Equal(t, 11.0, trade.OpenPrice)
+
+		trade.updatePnL(12, time.Now())
+
+		assert.Equal(t, 100.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+
+		assert.Len(t, trade.Returns, 1)
+
+		trade.updatePnL(15, time.Now())
+
+		assert.Equal(t, 400.0, trade.OpenPnL)
+		assert.Equal(t, 0.0, trade.ClosedPnL)
+
+		assert.Equal(t, 400.0, trade.Returns[1].OpenPnL)
+
+		trade.putNewOrder(newTestOrder(18, OrderSell, 100, "2"))
+		trade.confirmOrder("2")
+		trade.executeOrder("2", 100, 18, time.Now())
+
+		assert.Equal(t, 0.0, trade.OpenPnL)
+		assert.Equal(t, 700.0, trade.ClosedPnL)
+
+
+	}
 }

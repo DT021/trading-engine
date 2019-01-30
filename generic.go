@@ -169,6 +169,15 @@ type TradeReturn struct {
 	Time      time.Time
 }
 
+func newEmptyTrade(symbol string) *Trade {
+	trade := Trade{Symbol: symbol, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(),
+		ClosedPnL: 0, OpenPnL: 0, FilledOrders: make(map[string]*Order), CanceledOrders: make(map[string]*Order),
+		NewOrders: make(map[string]*Order), ConfirmedOrders: make(map[string]*Order), RejectedOrders: make(map[string]*Order),
+		AllOrdersIDMap: make(map[string]struct{})}
+
+	return &trade
+}
+
 type Trade struct {
 	Symbol      string
 	Qty         int
@@ -193,13 +202,15 @@ type Trade struct {
 	Id              string
 }
 
-func newEmptyTrade(symbol string) *Trade {
-	trade := Trade{Symbol: symbol, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(),
-		ClosedPnL: 0, OpenPnL: 0, FilledOrders: make(map[string]*Order), CanceledOrders: make(map[string]*Order),
-		NewOrders: make(map[string]*Order), ConfirmedOrders: make(map[string]*Order), RejectedOrders: make(map[string]*Order),
-		AllOrdersIDMap: make(map[string]struct{})}
+func (t *Trade) IsOpen() bool {
+	if t.Type == LongTrade || t.Type == ShortTrade {
+		if t.Qty == 0 {
+			panic("Zero qty in open position")
+		}
+		return true
+	}
 
-	return &trade
+	return false
 }
 
 //putNewOrder inserts order in NewOrders map. If there are order with same id in all orders
@@ -338,8 +349,8 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 			}
 			t.Type = ShortTrade
 		}
-		t.OpenPrice = order.Price
-		t.OpenValue = order.Price * float64(t.Qty)
+		t.OpenPrice = execPrice
+		t.OpenValue = execPrice * float64(t.Qty)
 		t.MarketValue = t.OpenValue
 		t.OpenTime = datetime
 		return nil, nil
@@ -535,10 +546,19 @@ func (t *Trade) updateAllOrdersIDMap() {
 
 }
 
-func (t *Trade) IsOpen() bool {
-	if t.Qty != 0 {
-		return true
+
+//updatePnL updates open pnl and positions market value for Long and Short positions
+func (t *Trade) updatePnL(marketPrice float64, lastTime time.Time) error {
+	t.MarketValue = marketPrice * float64(t.Qty)
+	if t.Type == LongTrade {
+		t.OpenPnL = t.MarketValue - t.OpenValue
 	} else {
-		return false
+		if t.Type != ShortTrade {
+			return errors.New("Can't update pnl for not open position")
+		}
+		t.OpenPnL = -(t.MarketValue - t.OpenValue)
 	}
+
+	t.Returns = append(t.Returns, &TradeReturn{t.OpenPnL, t.ClosedPnL, lastTime})
+	return nil
 }
