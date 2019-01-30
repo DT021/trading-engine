@@ -4,6 +4,7 @@ import (
 	"alex/marketdata"
 	"sort"
 	"time"
+	"errors"
 )
 
 type IStrategy interface {
@@ -13,11 +14,11 @@ type IStrategy interface {
 	onTickHistoryHandler(e *TickHistoryEvent) []*event
 	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
-	onOrderFillHandler(e *OrderFillEvent) []*event
-	onOrderCancelHandler(e *OrderCancelEvent) []*event
-	onOrderConfirmHandler(e *OrderConfirmationEvent) []*event
+	onOrderFillHandler(e *OrderFillEvent)
+	onOrderCancelHandler(e *OrderCancelEvent)
+	onOrderConfirmHandler(e *OrderConfirmationEvent)
 	onOrderReplacedHandler(e *OrderReplacedEvent) []*event
-	onOrderRejectedHandler(e *OrderRejectedEvent) []*event
+	onOrderRejectedHandler(e *OrderRejectedEvent)
 
 	onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event
 
@@ -28,6 +29,7 @@ type IStrategy interface {
 }
 
 type BasicStrategy struct {
+	connected          bool
 	Symbol             string
 	Name               string
 	NPeriods           int
@@ -37,7 +39,31 @@ type BasicStrategy struct {
 	Candles            marketdata.CandleArray
 	lastCandleOpen     float64
 	lastCandleOpenTime time.Time
-	generatedEvents    []*event
+	eventChan          chan *event
+	errorsChan         chan error
+}
+
+func (b *BasicStrategy) init() {
+	if b.currentTrade == nil {
+		b.currentTrade = newFlatTrade(b.Symbol)
+	}
+	if len(b.closedTrades) == 0 {
+		b.closedTrades = []*Trade{}
+	}
+}
+
+func (b *BasicStrategy) connect(eventChan chan *event, errorsChan chan error) {
+	if eventChan == nil {
+		panic("Can't connect stategy. Event channel is nil")
+	}
+
+	if errorsChan == nil {
+		panic("Can't connect strategy. Errors chan is nil")
+	}
+
+	b.eventChan = eventChan
+	b.errorsChan = errorsChan
+	b.connected = true
 }
 
 //Strategy API calls
@@ -101,6 +127,9 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) []*event {
 	}
 
 	b.putNewCandle(e.Candle)
+	if b.currentTrade.IsOpen() {
+		b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
+	}
 	if len(b.Candles) < b.NPeriods {
 		return nil
 	}
@@ -117,6 +146,9 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) []*event {
 	if !e.CandleTime.Before(b.lastCandleOpenTime) {
 		b.lastCandleOpen = e.Price
 		b.lastCandleOpenTime = e.CandleTime
+	}
+	if b.currentTrade.IsOpen() {
+		b.currentTrade.updatePnL(e.Price, e.CandleTime)
 	}
 
 	b.OnCandleOpen()
@@ -176,6 +208,9 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) []*event {
 	}
 
 	b.putNewTick(e.Tick)
+	if b.currentTrade.IsOpen() {
+		b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
+	}
 	if len(b.Ticks) < b.NPeriods {
 		return nil
 	}
@@ -225,29 +260,51 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 //Order events
 
 //onOrderFillHandler updates current state of order and current position
-func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) []*event {
-	b.updatePositions(e)
-	return b.flushEvents()
+func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
+	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
+	if err != nil {
+		b.error(err)
+		return
+	}
+	if newPos != nil {
+		if b.currentTrade.Type != ClosedTrade {
+			b.error(errors.New("New position opened, but previous is not closed"))
+			return
+		}
+		b.closedTrades = append(b.closedTrades, b.currentTrade)
+		b.currentTrade = newPos
+	}
+
 }
 
-func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) []*event {
-	b.updatePositions(e)
-	return b.flushEvents()
+func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
+	err := b.currentTrade.cancelOrder(e.OrdId)
+	if err != nil {
+		b.error(err)
+		return
+	}
+
 }
 
-func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) []*event {
-	b.updatePositions(e)
-	return b.flushEvents()
+func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
+	err := b.currentTrade.confirmOrder(e.OrdId)
+	if err != nil {
+		b.error(err)
+		return
+	}
 }
 
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) []*event {
-
+	//Todo
 	return nil
 }
 
-func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) []*event {
-
-	return nil
+func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
+	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
+	if err != nil {
+		b.error(err)
+		return
+	}
 }
 
 //Broker events
@@ -263,14 +320,20 @@ func (b *BasicStrategy) onTimerTickHandler(e *TimerTickEvent) []*event {
 }
 
 //Private funcs to work with data
-func (b *BasicStrategy) flushEvents() []*event { //Todo а не будет ли оно обновлятся?
-	if len(b.generatedEvents) > 0 {
+func (b *BasicStrategy) flushEvents() []*event {
+	/*if len(b.generatedEvents) > 0 {
 		r := b.generatedEvents
 		b.generatedEvents = []*event{}
 		return r
-	}
+	}*/
 
 	return nil
+}
+
+func (b *BasicStrategy) error(err error) {
+	if b.errorsChan != nil {
+		b.errorsChan <- err //Todo possible panic here. Channel can be closed
+	}
 }
 
 func (b *BasicStrategy) updatePositions(e event) {

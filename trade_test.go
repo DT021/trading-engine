@@ -251,7 +251,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 }
 
 func TestTrade_OrdersExecution(t *testing.T) {
-	trade := newEmptyTrade("Test")
+	trade := newFlatTrade("Test")
 
 	t.Log("Add few valid orders - long and short")
 	{
@@ -566,7 +566,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	t.Log("Check id, first price")
 	{
 		execTime := time.Now()
-		trade = newEmptyTrade("Test")
+		trade = newFlatTrade("Test")
 		trade.putNewOrder(newTestOrder(10, OrderSell, 100, "22"))
 		trade.confirmOrder("22")
 		trade.executeOrder("22", 100, 22, execTime)
@@ -579,7 +579,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 }
 
 func TestTrade_updatePnL(t *testing.T) {
-	trade := newEmptyTrade("Test")
+	trade := newFlatTrade("Test")
 
 	t.Log("Add execution to a trade")
 	{
@@ -643,7 +643,7 @@ func TestTrade_updatePnL(t *testing.T) {
 
 	t.Log("Create long trade and check updates")
 	{
-		trade = newEmptyTrade("Test")
+		trade = newFlatTrade("Test")
 		trade.putNewOrder(newTestOrder(10, OrderBuy, 100, "1"))
 		trade.confirmOrder("1")
 		trade.executeOrder("1", 100, 11, time.Now())

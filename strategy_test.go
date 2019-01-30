@@ -16,6 +16,10 @@ type DummyStrategy struct {
 func newTestBasicStrategy() *DummyStrategy {
 	bs := BasicStrategy{Symbol: "TEST", NPeriods: 20}
 	st := DummyStrategy{bs}
+	st.init()
+	eventsChan := make(chan *event)
+	errorsChan := make(chan error)
+	st.connect(eventsChan, errorsChan)
 	return &st
 }
 
@@ -290,8 +294,7 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 
 }
 
-
-func TestBasicStrategy_onCandleOpenHandler(t *testing.T){
+func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 	st := newTestBasicStrategy()
 	t.Log("Put some historical candles")
 	{
@@ -303,11 +306,11 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T){
 	}
 	t.Log("Add realtime candle close events")
 	{
-		candle := &marketdata.Candle{Open:200.0, Datetime:time.Now().Add(time.Hour*time.Duration(200))}
+		candle := &marketdata.Candle{Open: 200.0, Datetime: time.Now().Add(time.Hour * time.Duration(200))}
 		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
 		assert.Equal(t, 200.0, st.LastCandleOpen())
 
-		candle = &marketdata.Candle{Open:299.0, Datetime:time.Now().Add(time.Hour*time.Duration(-200))}
+		candle = &marketdata.Candle{Open: 299.0, Datetime: time.Now().Add(time.Hour * time.Duration(-200))}
 		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
 		assert.Equal(t, 200.0, st.LastCandleOpen())
 
@@ -315,24 +318,21 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T){
 
 	t.Log("Put realtime candle open events")
 	{
-		e := CandleOpenEvent{Price:500, CandleTime:time.Now().Add(time.Hour*time.Duration(255))}
+		e := CandleOpenEvent{Price: 500, CandleTime: time.Now().Add(time.Hour * time.Duration(255))}
 		st.onCandleOpenHandler(&e)
 		assert.Equal(t, 500.0, st.LastCandleOpen())
 
-		e = CandleOpenEvent{Price:999, CandleTime:time.Now().Add(time.Hour*time.Duration(200))}
+		e = CandleOpenEvent{Price: 999, CandleTime: time.Now().Add(time.Hour * time.Duration(200))}
 		st.onCandleOpenHandler(&e)
 		assert.Equal(t, 500.0, st.LastCandleOpen())
 
-		candle := &marketdata.Candle{Open:15.0, Datetime:time.Now().Add(time.Hour*time.Duration(600))}
+		candle := &marketdata.Candle{Open: 15.0, Datetime: time.Now().Add(time.Hour * time.Duration(600))}
 		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
 		assert.Equal(t, 15.0, st.LastCandleOpen())
 
-		candle = &marketdata.Candle{Open:19.0, Datetime:time.Now().Add(time.Hour*time.Duration(100))}
+		candle = &marketdata.Candle{Open: 19.0, Datetime: time.Now().Add(time.Hour * time.Duration(100))}
 		st.onCandleCloseHandler(&CandleCloseEvent{Candle: candle})
 		assert.Equal(t, 15.0, st.LastCandleOpen())
 	}
-
-
-
 
 }

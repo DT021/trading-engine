@@ -10,12 +10,10 @@ type event interface {
 	getName() string
 }
 
-
-
 type CandleOpenEvent struct {
-	Symbol string
-	Time   time.Time
-	Price float64
+	Symbol     string
+	Time       time.Time
+	Price      float64
 	CandleTime time.Time
 }
 
@@ -26,8 +24,6 @@ func (c *CandleOpenEvent) getName() string {
 func (c *CandleOpenEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type CandleCloseEvent struct {
 	Symbol string
@@ -43,8 +39,6 @@ func (c *CandleCloseEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type CandleHistoryRequestEvent struct {
 	Symbol string
 	Time   time.Time
@@ -59,11 +53,9 @@ func (c *CandleHistoryRequestEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type CandleHistoryEvent struct {
-	Symbol string
-	Time   time.Time
+	Symbol  string
+	Time    time.Time
 	Candles marketdata.CandleArray
 }
 
@@ -74,8 +66,6 @@ func (c *CandleHistoryEvent) getName() string {
 func (c *CandleHistoryEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type NewTickEvent struct {
 	Time time.Time
@@ -89,7 +79,6 @@ func (c *NewTickEvent) getName() string {
 func (c *NewTickEvent) getTime() time.Time {
 	return c.Time
 }
-
 
 type TickHistoryRequestEvent struct {
 	Symbol string
@@ -105,12 +94,10 @@ func (c *TickHistoryRequestEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type TickHistoryEvent struct {
 	Symbol string
 	Time   time.Time
-	Ticks marketdata.TickArray
+	Ticks  marketdata.TickArray
 }
 
 func (c *TickHistoryEvent) getName() string {
@@ -120,8 +107,6 @@ func (c *TickHistoryEvent) getName() string {
 func (c *TickHistoryEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type NewOrderEvent struct {
 	Time time.Time
@@ -135,9 +120,8 @@ func (c *NewOrderEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type OrderConfirmationEvent struct {
+	OrdId string
 	Time time.Time
 }
 
@@ -149,12 +133,12 @@ func (c *OrderConfirmationEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type OrderFillEvent struct {
 	Symbol string
 	Time   time.Time
-	ordId  string
+	Price  float64
+	OrdId  string
+	Qty int
 }
 
 func (c *OrderFillEvent) getName() string {
@@ -165,10 +149,9 @@ func (c *OrderFillEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type OrderCancelEvent struct {
 	Time time.Time
+	OrdId string
 }
 
 func (c *OrderCancelEvent) getName() string {
@@ -178,8 +161,6 @@ func (c *OrderCancelEvent) getName() string {
 func (c *OrderCancelEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type OrderCancelRequestEvent struct {
 	Time time.Time
@@ -193,8 +174,6 @@ func (c *OrderCancelRequestEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type OrderReplaceRequestEvent struct {
 	Time time.Time
 }
@@ -206,8 +185,6 @@ func (c *OrderReplaceRequestEvent) getName() string {
 func (c *OrderReplaceRequestEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type OrderReplacedEvent struct {
 	Time time.Time
@@ -221,10 +198,10 @@ func (c *OrderReplacedEvent) getTime() time.Time {
 	return c.Time
 }
 
-
-
 type OrderRejectedEvent struct {
 	Time time.Time
+	OrdId string
+	Reason string
 }
 
 func (c *OrderRejectedEvent) getName() string {
@@ -234,8 +211,6 @@ func (c *OrderRejectedEvent) getName() string {
 func (c *OrderRejectedEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type BrokerPositionUpdateEvent struct {
 	Time time.Time
@@ -248,8 +223,6 @@ func (c *BrokerPositionUpdateEvent) getName() string {
 func (c *BrokerPositionUpdateEvent) getTime() time.Time {
 	return c.Time
 }
-
-
 
 type TimerTickEvent struct {
 	Time time.Time

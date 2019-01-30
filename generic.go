@@ -169,7 +169,7 @@ type TradeReturn struct {
 	Time      time.Time
 }
 
-func newEmptyTrade(symbol string) *Trade {
+func newFlatTrade(symbol string) *Trade {
 	trade := Trade{Symbol: symbol, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(),
 		ClosedPnL: 0, OpenPnL: 0, FilledOrders: make(map[string]*Order), CanceledOrders: make(map[string]*Order),
 		NewOrders: make(map[string]*Order), ConfirmedOrders: make(map[string]*Order), RejectedOrders: make(map[string]*Order),
@@ -384,7 +384,7 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := newEmptyTrade(t.Symbol)
+					newTrade := newFlatTrade(t.Symbol)
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
 
@@ -451,7 +451,7 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := newEmptyTrade(t.Symbol)
+					newTrade := newFlatTrade(t.Symbol)
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
 
