@@ -6,6 +6,7 @@ import (
 	"time"
 	"github.com/stretchr/testify/assert"
 	"fmt"
+	"math"
 )
 
 //We use some dummy strategy for tests
@@ -359,6 +360,23 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		}
 	}
 
+	t.Log("Test new order with wrong params")
+	{
+		wrongOrder := newTestOrder(math.NaN(), OrderBuy, 100, "")
+		err := st.NewOrder(wrongOrder)
+
+		assert.NotNil(t, err)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+
+		wrongOrder.Price = 10
+		wrongOrder.Symbol = "Test2"
+
+		err = st.NewOrder(wrongOrder)
+
+		assert.NotNil(t, err)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+	}
+
 	t.Log("Test new order")
 	{
 
@@ -448,15 +466,88 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{"NotExistingID", time.Now()})
 
-		select {
-		case v, ok := <-st.errorsChan:
-			assert.True(t, ok)
-			assert.NotNil(t, v)
-			break
-		default:
-			t.Fail()
-			break
-		}
+		v := <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.NotNil(t, v)
 
 	}
+
+	t.Log("Test cancel event with wrong ID")
+	{
+		st.onOrderCancelHandler(&OrderCancelEvent{"NotExistingID", time.Now()})
+
+		v := <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.NotNil(t, v)
+	}
+
+	t.Log("Test replace event with wrong ID")
+	{
+		st.onOrderReplacedHandler(&OrderReplacedEvent{"NotExistingID", 10, time.Now()})
+
+		v := <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.NotNil(t, v)
+	}
+
+	t.Log("Test reject event with wrong ID")
+	{
+		st.onOrderRejectedHandler(&OrderRejectedEvent{"NotExistingID", "SomeReason", time.Now()})
+
+		v := <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.NotNil(t, v)
+	}
+
+	t.Log("Test replace and cancel order with wrong status")
+	{
+		ordTest := newTestOrder(5, OrderSell, 250, "someID")
+		err := st.NewOrder(ordTest)
+		assert.Nil(t, err)
+
+		assert.Equal(t, NewOrder, ordTest.State)
+		assert.Len(t, st.currentTrade.NewOrders, 1)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.RejectedOrders, 1)
+		assert.Len(t, st.currentTrade.CanceledOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+		assert.False(t, ordTest.Id == "")
+
+		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
+
+		v := <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
+
+		v = <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.Equal(t, NewOrder, ordTest.State)
+
+		st.onOrderRejectedHandler(&OrderRejectedEvent{ordTest.Id, "SomeReason", time.Now()})
+
+		assert.Equal(t, RejectedOrder, ordTest.State)
+
+		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
+
+		v = <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
+
+		v = <- st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		assert.Equal(t, RejectedOrder, ordTest.State)
+
+
+
+	}
+
 }

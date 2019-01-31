@@ -101,6 +101,9 @@ func (b *BasicStrategy) Position() int {
 }
 
 func (b *BasicStrategy) NewOrder(order *Order) error {
+	if order.Symbol != b.Symbol {
+		return errors.New("Can't put new order. Strategy symbol and order symbol are different")
+	}
 	if order.Id == "" {
 		order.Id = time.Now().Format(orderidLayout)
 	}
@@ -293,7 +296,7 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 	err := b.currentTrade.cancelOrder(e.OrdId)
 	if err != nil {
-		b.error(err)
+		go b.error(err)
 		return
 	}
 
@@ -310,7 +313,7 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) []*event {
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
 	if err != nil {
-		b.error(err)
+		go b.error(err)
 	}
 	return nil
 }
@@ -318,7 +321,7 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) []*event {
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
 	if err != nil {
-		b.error(err)
+		go b.error(err)
 		return
 	}
 }
