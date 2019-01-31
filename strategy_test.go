@@ -14,7 +14,7 @@ type DummyStrategy struct {
 }
 
 func newTestBasicStrategy() *DummyStrategy {
-	bs := BasicStrategy{Symbol: "TEST", NPeriods: 20}
+	bs := BasicStrategy{Symbol: "Test", NPeriods: 20}
 	st := DummyStrategy{bs}
 	st.init()
 	eventsChan := make(chan *event)
@@ -335,4 +335,128 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 		assert.Equal(t, 15.0, st.LastCandleOpen())
 	}
 
+}
+
+func TestBasicStrategy_OrdersFlow(t *testing.T) {
+	t.Log("Test orders flow in Basic Strategy")
+	st := newTestBasicStrategy()
+
+	defer func() {
+		close(st.errorsChan)
+		close(st.eventChan)
+	}()
+	ord := newTestOrder(100, OrderBuy, 100, "")
+
+	assertNoErrorsGeneratedByEvents := func() {
+		select {
+		case v, ok := <-st.errorsChan:
+			assert.False(t, ok)
+			if ok {
+				t.Error(v)
+			}
+		default:
+			break
+		}
+	}
+
+	t.Log("Test new order")
+	{
+
+		err := st.NewOrder(ord)
+		assert.Nil(t, err)
+		assert.False(t, ord.Id == "")
+		assert.Equal(t, 100.0, st.currentTrade.NewOrders[ord.Id].Price)
+		assert.Len(t, st.currentTrade.NewOrders, 1)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.RejectedOrders, 0)
+		assert.Len(t, st.currentTrade.CanceledOrders, 0)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+	}
+
+	t.Log("Test confirm event")
+	{
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{ord.Id, time.Now()})
+		assert.Equal(t, 100.0, st.currentTrade.ConfirmedOrders[ord.Id].Price)
+		assert.Equal(t, ConfirmedOrder, ord.State)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+		assert.Len(t, st.currentTrade.RejectedOrders, 0)
+		assert.Len(t, st.currentTrade.CanceledOrders, 0)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+		assertNoErrorsGeneratedByEvents()
+	}
+
+	t.Log("Test replace event")
+	{
+		st.onOrderReplacedHandler(&OrderReplacedEvent{ord.Id, 222.0, time.Now()})
+		assert.Equal(t, 222.0, st.currentTrade.ConfirmedOrders[ord.Id].Price)
+		assert.Equal(t, ConfirmedOrder, ord.State)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+		assert.Len(t, st.currentTrade.RejectedOrders, 0)
+		assert.Len(t, st.currentTrade.CanceledOrders, 0)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+		assert.Equal(t, 222.0, ord.Price)
+		assertNoErrorsGeneratedByEvents()
+	}
+
+	t.Log("Test cancel event")
+	{
+		st.onOrderCancelHandler(&OrderCancelEvent{ord.Id, time.Now()})
+
+		assert.Equal(t, 222.0, st.currentTrade.CanceledOrders[ord.Id].Price)
+		assert.Equal(t, CanceledOrder, ord.State)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.RejectedOrders, 0)
+		assert.Len(t, st.currentTrade.CanceledOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+		assertNoErrorsGeneratedByEvents()
+	}
+
+	t.Log("Test reject event")
+	{
+		ordToReject := newTestOrder(5, OrderSell, 250, "")
+		err := st.NewOrder(ordToReject)
+		assert.Nil(t, err)
+
+		assert.Equal(t, NewOrder, ordToReject.State)
+		assert.Len(t, st.currentTrade.NewOrders, 1)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.RejectedOrders, 0)
+		assert.Len(t, st.currentTrade.CanceledOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+		assert.False(t, ordToReject.Id == "")
+
+		st.onOrderRejectedHandler(&OrderRejectedEvent{ordToReject.Id, "Not shortable", time.Now()})
+
+		assertNoErrorsGeneratedByEvents()
+
+		assert.Equal(t, RejectedOrder, ordToReject.State)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.RejectedOrders, 1)
+		assert.Len(t, st.currentTrade.CanceledOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+	}
+
+	t.Log("Test confirm event with wrong ID")
+	{
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{"NotExistingID", time.Now()})
+
+		select {
+		case v, ok := <-st.errorsChan:
+			assert.True(t, ok)
+			assert.NotNil(t, v)
+			break
+		default:
+			t.Fail()
+			break
+		}
+
+	}
 }

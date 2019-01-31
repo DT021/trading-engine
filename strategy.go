@@ -7,6 +7,10 @@ import (
 	"errors"
 )
 
+const (
+	orderidLayout = "2006-01-02|15:04:05.000"
+)
+
 type IStrategy interface {
 	onCandleOpenHandler(e *CandleOpenEvent) []*event
 	onCandleCloseHandler(e *CandleCloseEvent) []*event
@@ -96,8 +100,17 @@ func (b *BasicStrategy) Position() int {
 
 }
 
-func (b *BasicStrategy) NewOrder() {
+func (b *BasicStrategy) NewOrder(order *Order) error {
+	if order.Id == "" {
+		order.Id = time.Now().Format(orderidLayout)
+	}
 
+	if !order.isValid() {
+		return errors.New("Order is not valid")
+	}
+	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
+	b.currentTrade.putNewOrder(order)
+	return nil
 }
 
 func (b *BasicStrategy) CancelOrder(ordID string) {
@@ -289,7 +302,7 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	err := b.currentTrade.confirmOrder(e.OrdId)
 	if err != nil {
-		b.error(err)
+		go b.error(err)
 		return
 	}
 }
