@@ -295,7 +295,10 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 }
 
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) []*event {
-	//Todo
+	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
+	if err != nil {
+		b.error(err)
+	}
 	return nil
 }
 

@@ -156,6 +156,21 @@ func (o *Order) confirm() error {
 
 }
 
+func (o *Order) replace(newPrice float64) error {
+	if !o.IsPriced() {
+		return errors.New("Can't replace order. Order should be priced")
+	}
+	o.Price = newPrice
+	return nil
+}
+
+func (o *Order) IsPriced() bool {
+	if o.Type == LimitOnOpen || o.Type == LimitOrder || o.Type == LimitOnClose || o.Type == StopOrder {
+		return true
+	}
+	return false
+}
+
 func (o *Order) Created() bool {
 	if o.Type != "" && o.Price != 0 {
 		return true
@@ -295,6 +310,19 @@ func (t *Trade) cancelOrder(id string) error {
 		delete(t.ConfirmedOrders, id)
 	} else {
 		return errors.New("Can't cancel order. Not found in confirmed orders")
+	}
+	return nil
+}
+
+func (t *Trade) replaceOrder(id string, newPrice float64) error {
+	if order, ok := t.ConfirmedOrders[id]; ok {
+		err := order.replace(newPrice)
+		if err != nil {
+			return err
+		}
+
+	} else {
+		return errors.New("Can't replace order. Not found in confirmed orders")
 	}
 	return nil
 }
@@ -545,7 +573,6 @@ func (t *Trade) updateAllOrdersIDMap() {
 	}
 
 }
-
 
 //updatePnL updates open pnl and positions market value for Long and Short positions
 func (t *Trade) updatePnL(marketPrice float64, lastTime time.Time) error {

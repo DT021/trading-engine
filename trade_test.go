@@ -248,6 +248,33 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		assert.Equal(t, RejectedOrder, trade.RejectedOrders["888"].State)
 		assert.Equal(t, "Not shortable", trade.RejectedOrders["888"].Mark1)
 	}
+
+	t.Log("Put order and replace it")
+	{
+		trade.putNewOrder(newTestOrder(200, OrderBuy, 500, "999"))
+		trade.confirmOrder("999")
+		assert.Equal(t, 200.00, trade.ConfirmedOrders["999"].Price)
+
+		trade.replaceOrder("999", 150.0)
+
+		assert.Equal(t, 150.00, trade.ConfirmedOrders["999"].Price)
+
+		mktOrder := newTestOrder(10, OrderBuy, 100, "*8")
+		mktOrder.Price = math.NaN()
+		mktOrder.Type = MarketOrder
+
+		trade.putNewOrder(mktOrder)
+		err := trade.confirmOrder("*8")
+		assert.Nil(t, err)
+
+		assert.True(t, math.IsNaN(trade.ConfirmedOrders["*8"].Price))
+
+		err = trade.replaceOrder("*8", 200)
+		assert.NotNil(t, err)
+
+		assert.True(t, math.IsNaN(trade.ConfirmedOrders["*8"].Price))
+
+	}
 }
 
 func TestTrade_OrdersExecution(t *testing.T) {
@@ -640,7 +667,6 @@ func TestTrade_updatePnL(t *testing.T) {
 
 	}
 
-
 	t.Log("Create long trade and check updates")
 	{
 		trade = newFlatTrade("Test")
@@ -673,7 +699,6 @@ func TestTrade_updatePnL(t *testing.T) {
 
 		assert.Equal(t, 0.0, trade.OpenPnL)
 		assert.Equal(t, 700.0, trade.ClosedPnL)
-
 
 	}
 }

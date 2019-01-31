@@ -122,7 +122,7 @@ func (c *NewOrderEvent) getTime() time.Time {
 
 type OrderConfirmationEvent struct {
 	OrdId string
-	Time time.Time
+	Time  time.Time
 }
 
 func (c *OrderConfirmationEvent) getName() string {
@@ -138,7 +138,7 @@ type OrderFillEvent struct {
 	Time   time.Time
 	Price  float64
 	OrdId  string
-	Qty int
+	Qty    int
 }
 
 func (c *OrderFillEvent) getName() string {
@@ -150,7 +150,7 @@ func (c *OrderFillEvent) getTime() time.Time {
 }
 
 type OrderCancelEvent struct {
-	Time time.Time
+	Time  time.Time
 	OrdId string
 }
 
@@ -187,7 +187,9 @@ func (c *OrderReplaceRequestEvent) getTime() time.Time {
 }
 
 type OrderReplacedEvent struct {
-	Time time.Time
+	Time     time.Time
+	OrdId    string
+	NewPrice float64
 }
 
 func (c *OrderReplacedEvent) getName() string {
@@ -199,8 +201,8 @@ func (c *OrderReplacedEvent) getTime() time.Time {
 }
 
 type OrderRejectedEvent struct {
-	Time time.Time
-	OrdId string
+	Time   time.Time
+	OrdId  string
 	Reason string
 }
 
