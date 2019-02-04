@@ -338,32 +338,35 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 
 }
 
+func assertNoErrorsGeneratedByEvents(t *testing.T, st *DummyStrategy) {
+	select {
+	case v, ok := <-st.errorsChan:
+		assert.False(t, ok)
+		if ok {
+			t.Error(v)
+		}
+	default:
+		break
+	}
+}
+
 func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test orders flow in Basic Strategy")
 	st := newTestBasicStrategy()
 
-	defer func() {
+	/*defer func() {
 		close(st.errorsChan)
 		close(st.eventChan)
-	}()
-	ord := newTestOrder(100, OrderBuy, 100, "")
+	}()*///Todo почему после этого падает следующий тест???
 
-	assertNoErrorsGeneratedByEvents := func() {
-		select {
-		case v, ok := <-st.errorsChan:
-			assert.False(t, ok)
-			if ok {
-				t.Error(v)
-			}
-		default:
-			break
-		}
-	}
+	ord := newTestOrder(100, OrderBuy, 100, "")
 
 	t.Log("Test new order with wrong params")
 	{
 		wrongOrder := newTestOrder(math.NaN(), OrderBuy, 100, "")
 		err := st.NewOrder(wrongOrder)
+
+		assertStrategyHasNoEvents(t, st)
 
 		assert.NotNil(t, err)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -372,6 +375,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		wrongOrder.Symbol = "Test2"
 
 		err = st.NewOrder(wrongOrder)
+		assertStrategyHasNoEvents(t, st)
 
 		assert.NotNil(t, err)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -381,6 +385,8 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 
 		err := st.NewOrder(ord)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
 		assert.False(t, ord.Id == "")
 		assert.Equal(t, 100.0, st.currentTrade.NewOrders[ord.Id].Price)
@@ -402,7 +408,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		assert.Len(t, st.currentTrade.CanceledOrders, 0)
 		assert.Len(t, st.currentTrade.FilledOrders, 0)
 
-		assertNoErrorsGeneratedByEvents()
+		assertNoErrorsGeneratedByEvents(t, st)
 	}
 
 	t.Log("Test replace event")
@@ -416,7 +422,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		assert.Len(t, st.currentTrade.CanceledOrders, 0)
 		assert.Len(t, st.currentTrade.FilledOrders, 0)
 		assert.Equal(t, 222.0, ord.Price)
-		assertNoErrorsGeneratedByEvents()
+		assertNoErrorsGeneratedByEvents(t, st)
 	}
 
 	t.Log("Test cancel event")
@@ -431,13 +437,15 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		assert.Len(t, st.currentTrade.CanceledOrders, 1)
 		assert.Len(t, st.currentTrade.FilledOrders, 0)
 
-		assertNoErrorsGeneratedByEvents()
+		assertNoErrorsGeneratedByEvents(t, st)
 	}
 
 	t.Log("Test reject event")
 	{
 		ordToReject := newTestOrder(5, OrderSell, 250, "")
 		err := st.NewOrder(ordToReject)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
 
 		assert.Equal(t, NewOrder, ordToReject.State)
@@ -451,7 +459,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		st.onOrderRejectedHandler(&OrderRejectedEvent{ordToReject.Id, "Not shortable", time.Now()})
 
-		assertNoErrorsGeneratedByEvents()
+		assertNoErrorsGeneratedByEvents(t, st)
 
 		assert.Equal(t, RejectedOrder, ordToReject.State)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -507,6 +515,8 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		ordTest := newTestOrder(5, OrderSell, 250, "someID")
 		err := st.NewOrder(ordTest)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
 
 		assert.Equal(t, NewOrder, ordTest.State)
@@ -550,13 +560,42 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 }
 
+func assertStrategyHasNewOrderEvent(t *testing.T, st *DummyStrategy) {
+	v, ok := <-st.eventChan
+	if !ok {
+		t.Fatal("FATAL! Expected new order event.Didn't found any")
+	}
+	switch (*v).(type) {
+	case *NewOrderEvent:
+		t.Log("OK! Has new order event")
+	default:
+		t.Fatal("FATAL! New order event not produced")
+	}
+}
+
+func assertStrategyHasNoEvents(t *testing.T, st *DummyStrategy) {
+	select {
+	case v, ok := <-st.eventChan:
+		assert.False(t, ok)
+		if ok {
+			t.Errorf("ERROR! Expected no events. Found: %v", v)
+		}
+	default:
+		t.Log("OK! Events chan is empty")
+		break
+	}
+}
+
 func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	st := newTestBasicStrategy()
+
 	t.Log("Strategy: Add order to flat position and fill it")
 	{
 		order := newTestOrder(10, OrderBuy, 100, "id1")
 
 		st.NewOrder(order)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 
 		assert.Equal(t, "Test|B|id1", order.Id)
 		assert.Equal(t, NewOrder, order.State)
@@ -589,6 +628,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 
 		assert.Equal(t, NewOrder, order.State)
 		assert.Equal(t, "Test|B|id2", order.Id)
@@ -705,6 +746,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		prevOpenPrice := st.currentTrade.OpenPrice
 		st.NewOrder(order)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 
 		assert.Equal(t, "Test|S|ids1", order.Id)
 		assert.Equal(t, NewOrder, order.State)
@@ -740,6 +783,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		//*****************************
 		order2 := newTestOrder(15.23, OrderSell, 100, "ids2")
 		err := st.NewOrder(order2)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 
 		if err != nil {
 			t.Error(err)
@@ -787,6 +832,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(18.16, OrderSell, 500, "ids3")
 		err := st.NewOrder(order)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		if err != nil {
 			t.Error(err)
 		}
@@ -842,6 +889,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(20.0, OrderSell, 100, "ids5")
 		st.NewOrder(order)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
 		assert.Equal(t, ConfirmedOrder, order.State)
 
@@ -860,6 +909,8 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(19.03, OrderBuy, 450, "idb1")
 		st.NewOrder(order)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
 		assert.Equal(t, ConfirmedOrder, order.State)
 		prevOpenPrice := st.currentTrade.OpenPrice

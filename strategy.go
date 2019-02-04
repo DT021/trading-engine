@@ -114,11 +114,23 @@ func (b *BasicStrategy) NewOrder(order *Order) error {
 	}
 	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
 	b.currentTrade.putNewOrder(order)
+	ordEvent := NewOrderEvent{LinkedOrder: order, Time: order.Time}
+	go b.newEvent(&ordEvent)
 	return nil
 }
 
-func (b *BasicStrategy) CancelOrder(ordID string) {
+func (b *BasicStrategy) CancelOrder(ordID string) error {
+	if ordID == "" {
+		return errors.New("Order Id not specified")
+	}
+	if !b.currentTrade.hasOrderWithID(ordID) {
+		return errors.New("Order ID not found in confirmed orders")
+	}
+	cancelReq := OrderCancelRequestEvent{OrdId: ordID, Time: time.Now()}
 
+	go b.newEvent(&cancelReq)
+
+	return nil
 }
 
 func (b *BasicStrategy) LastCandleOpen() float64 {
@@ -358,9 +370,9 @@ func (b *BasicStrategy) error(err error) {
 	}
 }
 
-func (b *BasicStrategy) newEvent(e *event) {
+func (b *BasicStrategy) newEvent(e event) {
 	if b.eventChan != nil {
-		b.eventChan <- e
+		b.eventChan <- &e
 	}
 }
 

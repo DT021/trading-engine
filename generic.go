@@ -48,6 +48,7 @@ type Order struct {
 	Id        string
 	Mark1     string
 	Mark2     string
+	Time      time.Time
 }
 
 //isValid returns if order has right prices (NaN for market orders and specified for Limit and Stop)
@@ -215,6 +216,16 @@ type Trade struct {
 	ClosedPnL       float64
 	OpenPnL         float64
 	Id              string
+}
+
+func (t *Trade) hasOrderWithID(ordID string) bool {
+	for _, v := range t.ConfirmedOrders {
+		if v.Id == ordID {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (t *Trade) IsOpen() bool {

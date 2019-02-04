@@ -109,7 +109,8 @@ func (c *TickHistoryEvent) getTime() time.Time {
 }
 
 type NewOrderEvent struct {
-	Time time.Time
+	LinkedOrder *Order
+	Time        time.Time
 }
 
 func (c *NewOrderEvent) getName() string {
@@ -136,9 +137,9 @@ func (c *OrderConfirmationEvent) getTime() time.Time {
 type OrderFillEvent struct {
 	OrdId  string
 	Symbol string
-	Price float64
-	Qty int
-	Time time.Time
+	Price  float64
+	Qty    int
+	Time   time.Time
 }
 
 func (c *OrderFillEvent) getName() string {
@@ -163,7 +164,8 @@ func (c *OrderCancelEvent) getTime() time.Time {
 }
 
 type OrderCancelRequestEvent struct {
-	Time time.Time
+	OrdId string
+	Time  time.Time
 }
 
 func (c *OrderCancelRequestEvent) getName() string {
