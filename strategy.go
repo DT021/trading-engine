@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 	"errors"
+	"math"
 )
 
 const (
@@ -277,14 +278,27 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 
 //onOrderFillHandler updates current state of order and current position
 func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
+
+
+	if e.Symbol != b.Symbol {
+		go b.error(errors.New("Mismatch symbols in fill event and position"))
+	}
+
+	if e.Qty<=0{
+		go b.error(errors.New("Execution Qty is zero or less."))
+	}
+
+	if math.IsNaN(e.Price) || e.Price <= 0 {
+		go b.error(errors.New("Price is NaN or less or equal to zero."))
+	}
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
 	if err != nil {
-		b.error(err)
+		go b.error(err)
 		return
 	}
 	if newPos != nil {
 		if b.currentTrade.Type != ClosedTrade {
-			b.error(errors.New("New position opened, but previous is not closed"))
+			go b.error(errors.New("New position opened, but previous is not closed"))
 			return
 		}
 		b.closedTrades = append(b.closedTrades, b.currentTrade)

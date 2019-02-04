@@ -134,11 +134,11 @@ func (c *OrderConfirmationEvent) getTime() time.Time {
 }
 
 type OrderFillEvent struct {
-	Symbol string
-	Time   time.Time
-	Price  float64
 	OrdId  string
-	Qty    int
+	Symbol string
+	Price float64
+	Qty int
+	Time time.Time
 }
 
 func (c *OrderFillEvent) getName() string {
@@ -190,7 +190,6 @@ type OrderReplacedEvent struct {
 	OrdId    string
 	NewPrice float64
 	Time     time.Time
-
 }
 
 func (c *OrderReplacedEvent) getName() string {
@@ -205,7 +204,6 @@ type OrderRejectedEvent struct {
 	OrdId  string
 	Reason string
 	Time   time.Time
-
 }
 
 func (c *OrderRejectedEvent) getName() string {

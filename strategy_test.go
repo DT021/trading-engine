@@ -466,7 +466,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{"NotExistingID", time.Now()})
 
-		v := <- st.errorsChan
+		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.NotNil(t, v)
@@ -477,7 +477,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderCancelHandler(&OrderCancelEvent{"NotExistingID", time.Now()})
 
-		v := <- st.errorsChan
+		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.NotNil(t, v)
@@ -487,7 +487,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderReplacedHandler(&OrderReplacedEvent{"NotExistingID", 10, time.Now()})
 
-		v := <- st.errorsChan
+		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.NotNil(t, v)
@@ -497,7 +497,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderRejectedHandler(&OrderRejectedEvent{"NotExistingID", "SomeReason", time.Now()})
 
-		v := <- st.errorsChan
+		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.NotNil(t, v)
@@ -520,12 +520,12 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
 
-		v := <- st.errorsChan
+		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
 
-		v = <- st.errorsChan
+		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.Equal(t, NewOrder, ordTest.State)
@@ -536,18 +536,345 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
 
-		v = <- st.errorsChan
+		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
 
-		v = <- st.errorsChan
+		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.Equal(t, RejectedOrder, ordTest.State)
 
+	}
 
+}
+
+func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
+	st := newTestBasicStrategy()
+	t.Log("Strategy: Add order to flat position and fill it")
+	{
+		order := newTestOrder(10, OrderBuy, 100, "id1")
+
+		st.NewOrder(order)
+
+		assert.Equal(t, "Test|B|id1", order.Id)
+		assert.Equal(t, NewOrder, order.State)
+		assert.Equal(t, FlatTrade, st.currentTrade.Type)
+
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{order.Id, time.Now()})
+
+		assert.Equal(t, ConfirmedOrder, order.State)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 11, Qty: 100, Time: time.Now()})
+
+		assert.Equal(t, FilledOrder, order.State)
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+		assert.Equal(t, 100, st.Position())
+		assert.Equal(t, 11.0, st.currentTrade.OpenPrice)
+
+		assert.Len(t, st.currentTrade.FilledOrders, 1)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+
+		assert.Equal(t, "Test|B|id1", st.currentTrade.Id)
+
+		assert.Len(t, st.closedTrades, 0)
+	}
+
+	t.Log("Strategy: Add BUY order to existing LONG and fill it by parts")
+	{
+		order := newTestOrder(12, OrderBuy, 200, "id2")
+		err := st.NewOrder(order)
+		if err != nil {
+			t.Error(err)
+		}
+
+		assert.Equal(t, NewOrder, order.State)
+		assert.Equal(t, "Test|B|id2", order.Id)
+
+		assert.Len(t, st.currentTrade.NewOrders, 1)
+
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, Time: time.Now()})
+
+		assert.Equal(t, ConfirmedOrder, order.State)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 13, Qty: 50, Time: time.Now()})
+
+		assert.Equal(t, 150, st.Position())
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+
+		assert.Equal(t, PartialFilledOrder, order.State)
+		assert.Equal(t, 50, order.ExecQty)
+
+		assert.Equal(t, 13.0, order.ExecPrice)
+		assert.Equal(t, 12.0, order.Price)
+
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 1)
+
+		expectionOpenPrice := (100.0*11.0 + 50.0*13) / 150
+		assert.Equal(t, expectionOpenPrice, st.currentTrade.OpenPrice)
+
+		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
+		assert.Equal(t, expectionOpenPrice*150.0, st.currentTrade.OpenValue)
+		assert.Equal(t, 150.0*13.0, st.currentTrade.MarketValue)
+		assert.Equal(t, 150.0*13-expectionOpenPrice*150, st.currentTrade.OpenPnL)
+
+		assert.True(t, st.currentTrade.IsOpen())
+
+		//Next fill part
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 13.5, Qty: 100, Time: time.Now()})
+
+		assert.Equal(t, 250, st.Position())
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+
+		assert.Equal(t, PartialFilledOrder, order.State)
+		assert.Equal(t, 150, order.ExecQty)
+
+		expected := (13.0*50 + 13.50*100) / 150
+		assert.Equal(t, expected, order.ExecPrice)
+		assert.Equal(t, 12.0, order.Price)
+
+		expectionOpenPrice = (100.0*11.0 + 50.0*13 + 100.0*13.5) / 250
+		assert.Equal(t, expectionOpenPrice, st.currentTrade.OpenPrice)
+
+		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
+		assert.Equal(t, expectionOpenPrice*250.0, st.currentTrade.OpenValue)
+		assert.Equal(t, 250.0*13.5, st.currentTrade.MarketValue)
+		assert.Equal(t, 250.0*13.5-expectionOpenPrice*250, st.currentTrade.OpenPnL)
+
+		assert.True(t, st.currentTrade.IsOpen())
+
+		//Complete fill
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 11.25, Qty: 50, Time: time.Now()})
+
+		assert.Equal(t, 300, st.Position())
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+
+		assert.Equal(t, FilledOrder, order.State)
+		assert.Equal(t, 200, order.ExecQty)
+
+		expected = (13.0*50 + 13.50*100 + 50.0*11.25) / 200
+		assert.Equal(t, expected, order.ExecPrice)
+		assert.Equal(t, 12.0, order.Price)
+
+		expectionOpenPrice = (100.0*11.0 + 50.0*13 + 100.0*13.5 + 50*11.25) / 300
+		assert.Equal(t, expectionOpenPrice, st.currentTrade.OpenPrice)
+
+		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
+		assert.Equal(t, expectionOpenPrice*300.0, st.currentTrade.OpenValue)
+		assert.Equal(t, 300.0*11.25, st.currentTrade.MarketValue)
+		assert.Equal(t, 300.0*11.25-expectionOpenPrice*300, st.currentTrade.OpenPnL)
+
+		assert.True(t, st.currentTrade.IsOpen())
+
+		assert.Len(t, st.currentTrade.FilledOrders, 2)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+	}
+
+	t.Log("Strategy: Add executions with wrong params.Check for errors")
+	{
+		st.onOrderFillHandler(&OrderFillEvent{})
+		v := <-st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test"})
+		v = <-st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1"})
+		v = <-st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1", Price: math.NaN()})
+		v = <-st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
+
+		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1", Price: 10.0})
+		v = <-st.errorsChan
+		t.Logf("OK! Got exception: %v", v)
 
 	}
 
+	t.Log("Strategy: Partial close of long position")
+	{
+		order := newTestOrder(10, OrderSell, 100, "ids1")
+
+		prevOpenPrice := st.currentTrade.OpenPrice
+		st.NewOrder(order)
+
+		assert.Equal(t, "Test|S|ids1", order.Id)
+		assert.Equal(t, NewOrder, order.State)
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+
+		assert.Equal(t, 300, st.Position())
+
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, Time: time.Now()})
+
+		assert.Equal(t, ConfirmedOrder, order.State)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Qty: 50, Price: 15.2, Time: time.Now()})
+
+		assert.Equal(t, PartialFilledOrder, order.State)
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+
+		assert.Equal(t, 250, st.Position())
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+
+		assert.Equal(t, 15.2, order.ExecPrice)
+		assert.Equal(t, 50, order.ExecQty)
+		assert.Equal(t, 10.0, order.Price)
+
+		assert.Equal(t, prevOpenPrice, st.currentTrade.OpenPrice)
+
+		assert.Equal(t, prevOpenPrice*250, st.currentTrade.OpenValue)
+		assert.Equal(t, 250*15.2, st.currentTrade.MarketValue)
+
+		assert.Equal(t, (15.2-prevOpenPrice)*50, st.currentTrade.ClosedPnL)
+
+		//Add another order and execute it. First sell order still in status partial fill
+		//*****************************
+		order2 := newTestOrder(15.23, OrderSell, 100, "ids2")
+		err := st.NewOrder(order2)
+
+		if err != nil {
+			t.Error(err)
+		}
+
+		assert.Equal(t, NewOrder, order2.State)
+		prevClosedPnL := st.currentTrade.ClosedPnL
+
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order2.Id})
+
+		assert.Equal(t, ConfirmedOrder, order2.State)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 2)
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order2.Id, Price: order2.Price, Qty: order2.Qty})
+
+		assert.Equal(t, FilledOrder, order2.State)
+		assert.Equal(t, 100, order2.ExecQty)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+
+		assert.Equal(t, 150, st.Position())
+		assert.Equal(t, prevOpenPrice, st.currentTrade.OpenPrice)
+		assert.Equal(t, prevClosedPnL+(order2.Price-prevOpenPrice)*float64(order2.ExecQty), st.currentTrade.ClosedPnL)
+
+		assert.Equal(t, 150*order2.ExecPrice, st.currentTrade.MarketValue)
+		//*****************************************************************
+
+		t.Log("Cancel partially filled order")
+		{
+			st.onOrderCancelHandler(&OrderCancelEvent{OrdId: order.Id})
+			assert.Equal(t, CanceledOrder, order.State)
+			assert.Equal(t, 50, order.ExecQty)
+			assert.Len(t, st.currentTrade.CanceledOrders, 1)
+			assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		}
+
+		t.Log("Try to add execution for canceled order. Expecting error.")
+		{
+			st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 10, Qty: 10, Time: time.Now()})
+			v := <-st.errorsChan
+			t.Logf("OK! Got exception: %v", v)
+		}
+	}
+
+	t.Log("Strategy: Close current LONG position and reverse with single order and partial fills")
+	{
+		order := newTestOrder(18.16, OrderSell, 500, "ids3")
+		err := st.NewOrder(order)
+		if err != nil {
+			t.Error(err)
+		}
+
+		assert.Equal(t, NewOrder, order.State)
+		assert.Equal(t, LongTrade, st.currentTrade.Type)
+		assert.Equal(t, 150, st.Position())
+
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
+
+		assert.Equal(t, ConfirmedOrder, order.State)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+		prevPosId := st.currentTrade.Id
+		prevOpenPrice := st.currentTrade.OpenPrice
+		prevClosedPnL := st.currentTrade.ClosedPnL
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.20, Qty: 150, Time: time.Now()})
+
+		assert.Equal(t, PartialFilledOrder, order.State)
+		assert.Equal(t, FlatTrade, st.currentTrade.Type)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+		assert.Len(t, st.closedTrades, 1)
+		assert.Equal(t, prevPosId, st.closedTrades[0].Id)
+		assert.NotEqual(t, prevPosId, st.currentTrade.Id)
+
+		prevPos := st.closedTrades[0]
+
+		assert.Equal(t, ClosedTrade, prevPos.Type)
+		assert.Equal(t, prevClosedPnL+(order.ExecPrice-prevOpenPrice)*float64(order.ExecQty), prevPos.ClosedPnL)
+		assert.Equal(t, 0.0, prevPos.OpenValue)
+		assert.Equal(t, 0.0, prevPos.OpenPnL)
+		assert.Equal(t, 0.0, prevPos.MarketValue)
+
+		//Complete order fill. Flat position -> short position
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.22, Qty: 350, Time: time.Now()})
+		assert.Equal(t, ShortTrade, st.currentTrade.Type)
+		assert.Equal(t, -350, st.Position())
+		assert.Equal(t, 18.22, st.currentTrade.OpenPrice)
+		assert.Equal(t, 0.0, st.currentTrade.OpenPnL)
+		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
+
+		assert.Equal(t, order.Id, st.currentTrade.Id)
+		assert.Len(t, st.currentTrade.FilledOrders, 1)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Equal(t, FilledOrder, order.State)
+		assert.Equal(t, (18.22*350+18.20*150)/500, order.ExecPrice)
+		assert.Equal(t, 18.16, order.Price)
+		assert.Equal(t, 500, order.ExecQty)
+	}
+
+	t.Log("Strategy: Add to current open SHORT position")
+	{
+		order := newTestOrder(20.0, OrderSell, 100, "ids5")
+		st.NewOrder(order)
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
+		assert.Equal(t, ConfirmedOrder, order.State)
+
+		prevValue := st.currentTrade.OpenValue
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 20.01, Qty: 100})
+
+		assert.Len(t, st.currentTrade.FilledOrders, 2)
+		assert.Equal(t, (prevValue+order.ExecPrice*float64(order.ExecQty))/float64(st.currentTrade.Qty), st.currentTrade.OpenPrice)
+		assert.Equal(t, 450.0*20.01, st.currentTrade.MarketValue)
+		assert.Equal(t, st.currentTrade.OpenValue-st.currentTrade.MarketValue, st.currentTrade.OpenPnL)
+		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
+	}
+
+	t.Log("Strategy: Close current SHORT position. New FLAT position without orders expected")
+	{
+		order := newTestOrder(19.03, OrderBuy, 450, "idb1")
+		st.NewOrder(order)
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
+		assert.Equal(t, ConfirmedOrder, order.State)
+		prevOpenPrice := st.currentTrade.OpenPrice
+
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 19.01, Qty: 450})
+		assert.Len(t, st.closedTrades, 2)
+		assert.Equal(t, FlatTrade, st.currentTrade.Type)
+		assert.Equal(t, ClosedTrade, st.closedTrades[1].Type)
+		assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
+		assert.Len(t, st.currentTrade.NewOrders, 0)
+		assert.Len(t, st.currentTrade.FilledOrders, 0)
+
+		assert.Equal(t, (prevOpenPrice-19.01)*450, st.closedTrades[1].ClosedPnL)
+		assert.Equal(t, 0.0, st.closedTrades[1].OpenPnL)
+		assert.Equal(t, 0.0, st.closedTrades[1].OpenValue)
+		assert.Equal(t, 0.0, st.closedTrades[1].MarketValue)
+	}
 }
