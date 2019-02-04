@@ -13,9 +13,9 @@ const (
 )
 
 type IStrategy interface {
-	onCandleOpenHandler(e *CandleOpenEvent) []*event
-	onCandleCloseHandler(e *CandleCloseEvent) []*event
-	onTickHandler(e *NewTickEvent) []*event
+	onCandleOpenHandler(e *CandleOpenEvent)
+	onCandleCloseHandler(e *CandleCloseEvent)
+	onTickHandler(e *NewTickEvent)
 	onTickHistoryHandler(e *TickHistoryEvent) []*event
 	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
@@ -135,12 +135,13 @@ func (b *BasicStrategy) CandleIsValid(c *marketdata.Candle) bool {
 
 //Market data events
 
-func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) []*event {
+func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 	if e == nil {
-		return nil
+		return
+
 	}
 	if !b.CandleIsValid(e.Candle) || e.Candle == nil {
-		return nil
+		return
 	}
 
 	b.putNewCandle(e.Candle)
@@ -148,16 +149,15 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) []*event {
 		b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
 	}
 	if len(b.Candles) < b.NPeriods {
-		return nil
+		return
 	}
 	b.OnCandleClose()
-	return b.flushEvents()
 
 }
 
-func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) []*event {
+func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 	if e == nil {
-		return nil
+		return
 	}
 
 	if !e.CandleTime.Before(b.lastCandleOpenTime) {
@@ -169,7 +169,6 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) []*event {
 	}
 
 	b.OnCandleOpen()
-	return b.flushEvents()
 
 }
 
@@ -216,12 +215,12 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 	return nil
 }
 
-func (b *BasicStrategy) onTickHandler(e *NewTickEvent) []*event {
+func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	if e == nil {
-		return nil
+		return
 	}
 	if !b.TickIsValid(e.Tick) || e.Tick == nil {
-		return nil
+		return
 	}
 
 	b.putNewTick(e.Tick)
@@ -229,10 +228,10 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) []*event {
 		b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
 	}
 	if len(b.Ticks) < b.NPeriods {
-		return nil
+		return
 	}
 	b.OnTick()
-	return b.flushEvents()
+
 }
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
@@ -279,12 +278,11 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 //onOrderFillHandler updates current state of order and current position
 func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 
-
 	if e.Symbol != b.Symbol {
 		go b.error(errors.New("Mismatch symbols in fill event and position"))
 	}
 
-	if e.Qty<=0{
+	if e.Qty <= 0 {
 		go b.error(errors.New("Execution Qty is zero or less."))
 	}
 
@@ -353,19 +351,16 @@ func (b *BasicStrategy) onTimerTickHandler(e *TimerTickEvent) []*event {
 }
 
 //Private funcs to work with data
-func (b *BasicStrategy) flushEvents() []*event {
-	/*if len(b.generatedEvents) > 0 {
-		r := b.generatedEvents
-		b.generatedEvents = []*event{}
-		return r
-	}*/
-
-	return nil
-}
 
 func (b *BasicStrategy) error(err error) {
 	if b.errorsChan != nil {
-		b.errorsChan <- err //Todo possible panic here. Channel can be closed
+		b.errorsChan <- err
+	}
+}
+
+func (b *BasicStrategy) newEvent(e *event) {
+	if b.eventChan != nil {
+		b.eventChan <- e
 	}
 }
 
