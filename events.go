@@ -3,6 +3,7 @@ package engine
 import (
 	"time"
 	"alex/marketdata"
+	"fmt"
 )
 
 type event interface {
@@ -209,7 +210,7 @@ type OrderRejectedEvent struct {
 }
 
 func (c *OrderRejectedEvent) getName() string {
-	return "OrderRejectedEvent"
+	return fmt.Sprintf("OrderRejectedEvent: %v Reason: %v", c.OrdId, c.Reason)
 }
 
 func (c *OrderRejectedEvent) getTime() time.Time {

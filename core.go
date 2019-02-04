@@ -64,8 +64,8 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 	}
 
 	if c.BrokerConnector.IsSimulated() {
-		genEvents := c.BrokerConnector.OnCandleOpen(e.Price)
-		c.PutMultiply(genEvents)
+		/*genEvents := c.BrokerConnector.OnCandleOpen(e.Price)
+		c.PutMultiply(genEvents)*/ //Todo
 	}
 
 	(*st).onCandleOpenHandler(e)
@@ -81,8 +81,9 @@ func (c *Engine) eCandleClose(e *CandleCloseEvent) {
 	}
 
 	if c.BrokerConnector.IsSimulated() {
+		/*
 		genEvents := c.BrokerConnector.OnCandleClose(e.Candle)
-		c.PutMultiply(genEvents)
+		c.PutMultiply(genEvents)*/ //todo
 	}
 
 	(*st).onCandleCloseHandler(e)
@@ -114,7 +115,7 @@ func (c *Engine) eFill(e *OrderFillEvent) {
 }
 
 func (c *Engine) Run() error {
-    go c.BrokerConnector.Connect()
+    // go c.BrokerConnector.Connect() TODO
     go c.MarketDataConnector.Run()
 EVENT_LOOP:
 	for {
