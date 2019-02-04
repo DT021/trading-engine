@@ -929,3 +929,47 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.closedTrades[1].MarketValue)
 	}
 }
+
+func assertStrategyHasCancelRequest(t *testing.T, st *DummyStrategy) {
+	v, ok := <-st.eventChan
+	if !ok {
+		t.Fatal("FATAL! Expected cancel order event.Didn't found any")
+	}
+	switch (*v).(type) {
+	case *OrderCancelRequestEvent:
+		t.Log("OK! Has canel order request event")
+	default:
+		t.Fatal("FATAL! Canel order request event not produced")
+	}
+}
+
+func TestBasicStrategy_CancelOrder(t *testing.T) {
+	st := newTestBasicStrategy()
+	t.Log("Test cancel order request. Normal mode")
+	{
+		order := newTestOrder(10, OrderSell, 1000, "554")
+		st.NewOrder(order)
+		assertNoErrorsGeneratedByEvents(t, st)
+		assertStrategyHasNewOrderEvent(t, st)
+		assertStrategyHasNoEvents(t, st)
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
+		assert.Equal(t, ConfirmedOrder, order.State)
+		err := st.CancelOrder(order.Id)
+		if err != nil {
+			t.Error(err)
+		}
+
+		assertStrategyHasCancelRequest(t, st)
+		assertStrategyHasNoEvents(t, st)
+
+	}
+
+	t.Log("Test cancel order request with wrong params")
+	{
+		err := st.CancelOrder("NotExistingID")
+		assert.NotNil(t, err)
+		assertStrategyHasNoEvents(t, st)
+
+	}
+
+}

@@ -373,11 +373,8 @@ func (b *BasicStrategy) error(err error) {
 func (b *BasicStrategy) newEvent(e event) {
 	if b.eventChan != nil {
 		b.eventChan <- &e
+
 	}
-}
-
-func (b *BasicStrategy) updatePositions(e event) {
-
 }
 
 func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {
