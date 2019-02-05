@@ -268,7 +268,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
-				//assertNoEventsGeneratedByBroker(t, b)
+
 
 				v := getTestSimBrokerGeneratedEvent(t, b)
 				assert.NotNil(t, v)
@@ -621,15 +621,687 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 			assert.NotNil(t, err)
 			assertNoEventsGeneratedByBroker(t, b)
 		}
+
+		//Todo add test when we put not market order. should be error
 	}
+}
+
+func TestSimulatedBroker_checkOnTickLimit(t *testing.T){
+	b := newTestSimulatedBroker()
+
+	t.Log("Sim broker: test limit exectution for not limit order")
+	{
+		//Todo
+	}
+
+	t.Log("Sim broker: test limit execution for already filled order")
+	{
+		//todo
+	}
+
+	t.Log("Sim broker: test limit execution for not valid order")
+	{
+		//todo
+	}
+
+	t.Log("Sim broker: test limit execution for tick without trade")
+	{
+		//todo
+	}
+
+	t.Log("Sim broker: test limit execution for not confirmet order")
+	{
+		//todo
+	}
+
+	t.Log("Sim broker: TEST LONG ORDERS")
+	{
+
+		t.Log("Sim broker: test limit order execution on tick")
+		{
+			t.Log("Normal execution")
+			{
+				order := newTestOrder(20.02, OrderBuy, 200, "id1")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 20.00,
+					LastSize:  200,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+
+			}
+
+			t.Log("Partial order fill")
+			{
+				order := newTestOrder(20.13, OrderBuy, 200, "id2")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				t.Log("First tick without execution")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.15,
+						LastSize:  200,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 1)
+					assertNoErrorsGeneratedByBroker(t, b)
+					assertNoEventsGeneratedByBroker(t, b)
+				}
+
+				t.Log("First fill")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.12,
+						LastSize:  100,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 1)
+					assertNoErrorsGeneratedByBroker(t, b)
+
+					v := getTestSimBrokerGeneratedEvent(t, b)
+					assert.NotNil(t, v)
+					order.ExecQty = 100
+
+					switch (*v).(type) {
+					case *OrderFillEvent:
+						t.Log("OK! Got OrderFillEvent as expected")
+						assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+						assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+						assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+					default:
+
+						t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+					}
+
+				}
+
+				t.Log("Complete fill")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.12,
+						LastSize:  200,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 0)
+					assertNoErrorsGeneratedByBroker(t, b)
+
+					v := getTestSimBrokerGeneratedEvent(t, b)
+					assert.NotNil(t, v)
+					order.ExecQty = 200
+
+					switch (*v).(type) {
+					case *OrderFillEvent:
+						t.Log("OK! Got OrderFillEvent as expected")
+						assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+						assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+						assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+					default:
+
+						t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+					}
+
+				}
+
+			}
+
+		}
+
+		t.Log("Sim broker: test strict Limit ordres")
+		{
+			b.strictLimitOrders = true
+
+			order := newTestOrder(10.02, OrderBuy, 200, "id3")
+
+			order.State = ConfirmedOrder
+			assert.True(t, order.isValid())
+			b.confirmedOrders[order.Id] = order
+
+			t.Log("Tick with order price but without fill")
+			{
+
+				tick := marketdata.Tick{
+					LastPrice: 10.02,
+					LastSize:  200,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+				assertNoErrorsGeneratedByBroker(t, b)
+				assertNoEventsGeneratedByBroker(t, b)
+			}
+
+			t.Log("Tick below order price")
+			{
+				tick := marketdata.Tick{
+					LastPrice: 10.01,
+					LastSize:  400,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+			}
+
+		}
+
+		t.Log("Sim broker: test not strict Limit orders")
+		{
+			b.strictLimitOrders = false
+
+			t.Log("Tick with order price with fill")
+			{
+				order := newTestOrder(10.15, OrderBuy, 200, "id4")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 10.15,
+					LastSize:  500,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+
+			}
+
+			t.Log("Tick below order price")
+			{
+				order := newTestOrder(10.08, OrderBuy, 200, "id4")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 10.01,
+					LastSize:  400,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+			}
+
+		}
+	}
+
+	t.Log("Sim broker: TEST SHORT ORDERS")
+	{
+
+
+		t.Log("Sim broker: test limit order execution on tick")
+		{
+			t.Log("Normal execution")
+			{
+				order := newTestOrder(20.02, OrderSell, 200, "ids1")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 20.05,
+					LastSize:  200,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+
+			}
+
+			t.Log("Partial order fill")
+			{
+				order := newTestOrder(20.13, OrderBuy, 200, "ids2")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				t.Log("First tick without execution")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.11,
+						LastSize:  200,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 1)
+					assertNoErrorsGeneratedByBroker(t, b)
+					assertNoEventsGeneratedByBroker(t, b)
+				}
+
+				t.Log("First fill")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.15,
+						LastSize:  100,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 1)
+					assertNoErrorsGeneratedByBroker(t, b)
+
+					v := getTestSimBrokerGeneratedEvent(t, b)
+					assert.NotNil(t, v)
+					order.ExecQty = 100
+
+					switch (*v).(type) {
+					case *OrderFillEvent:
+						t.Log("OK! Got OrderFillEvent as expected")
+						assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+						assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+						assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+					default:
+
+						t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+					}
+
+				}
+
+				t.Log("Complete fill")
+				{
+					tick := marketdata.Tick{
+						LastPrice: 20.18,
+						LastSize:  200,
+						BidPrice:  math.NaN(),
+						AskPrice:  math.NaN(),
+						HasTrade:  true,
+						HasQuote:  false,
+					}
+
+					b.checkOnTickMarket(order, &tick)
+					assert.Equal(t, ConfirmedOrder, order.State)
+					assert.Len(t, b.confirmedOrders, 0)
+					assertNoErrorsGeneratedByBroker(t, b)
+
+					v := getTestSimBrokerGeneratedEvent(t, b)
+					assert.NotNil(t, v)
+					order.ExecQty = 200
+
+					switch (*v).(type) {
+					case *OrderFillEvent:
+						t.Log("OK! Got OrderFillEvent as expected")
+						assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+						assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+						assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+					default:
+
+						t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+					}
+
+				}
+
+			}
+
+		}
+
+		t.Log("Sim broker: test strict Limit ordres")
+		{
+			b.strictLimitOrders = true
+
+			order := newTestOrder(10.02, OrderBuy, 200, "ids3")
+
+			order.State = ConfirmedOrder
+			assert.True(t, order.isValid())
+			b.confirmedOrders[order.Id] = order
+
+			t.Log("Tick with order price but without fill")
+			{
+
+				tick := marketdata.Tick{
+					LastPrice: 10.02,
+					LastSize:  200,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+				assertNoErrorsGeneratedByBroker(t, b)
+				assertNoEventsGeneratedByBroker(t, b)
+			}
+
+			t.Log("Tick above short order price")
+			{
+				tick := marketdata.Tick{
+					LastPrice: 10.04,
+					LastSize:  400,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+			}
+
+		}
+
+		t.Log("Sim broker: test not strict Limit orders")
+		{
+			b.strictLimitOrders = false
+
+			t.Log("Tick with order price with fill")
+			{
+				order := newTestOrder(10.15, OrderSell, 200, "ids4")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 10.15,
+					LastSize:  500,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+
+			}
+
+			t.Log("Tick above short order price")
+			{
+				order := newTestOrder(10.08, OrderSell, 200, "ids5")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 10.09,
+					LastSize:  400,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 200, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+			}
+
+			t.Log("Tick with order price and partail fill")
+			{
+				order := newTestOrder(10.15, OrderSell, 200, "ids5")
+
+				order.State = ConfirmedOrder
+				assert.True(t, order.isValid())
+				b.confirmedOrders[order.Id] = order
+
+				tick := marketdata.Tick{
+					LastPrice: 10.15,
+					LastSize:  100,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				order.ExecQty = 100
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 1)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v := getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+
+				tick = marketdata.Tick{
+					LastPrice: 10.15,
+					LastSize:  100,
+					BidPrice:  math.NaN(),
+					AskPrice:  math.NaN(),
+					HasTrade:  true,
+					HasQuote:  false,
+				}
+
+				b.checkOnTickMarket(order, &tick)
+				assert.Equal(t, ConfirmedOrder, order.State)
+				assert.Len(t, b.confirmedOrders, 0)
+				assertNoErrorsGeneratedByBroker(t, b)
+
+				v = getTestSimBrokerGeneratedEvent(t, b)
+				assert.NotNil(t, v)
+
+				switch (*v).(type) {
+				case *OrderFillEvent:
+					t.Log("OK! Got OrderFillEvent as expected")
+					assert.Equal(t, order.Price, (*v).(*OrderFillEvent).Price)
+					assert.Equal(t, 100, (*v).(*OrderFillEvent).Qty)
+					assert.Equal(t, order.Id, (*v).(*OrderFillEvent).OrdId)
+
+				default:
+
+					t.Errorf("Error! Expected OrderFillEvent. Got: %v", *v)
+				}
+			}
+
+		}
+	}
+
 }
 
 func TestSimulatedBroker_execs(t *testing.T) {
 
-	t.Log("Sim broker: test limit order execution on tick")
-	{
 
-	}
 
 	t.Log("Sim broker: test stop order execution on tick")
 	{

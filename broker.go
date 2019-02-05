@@ -29,6 +29,7 @@ type SimulatedBroker struct {
 	allOrders          map[string]*Order
 	delay              int64
 	hasQuotesAndTrades bool
+	strictLimitOrders bool
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
