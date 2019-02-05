@@ -8,7 +8,7 @@ import (
 )
 
 func newTestSimulatedBroker() *SimulatedBroker {
-	b := SimulatedBroker{delay:100}
+	b := SimulatedBroker{delay: 100}
 	errChan := make(chan error)
 	eventChan := make(chan *event)
 	err := b.Connect(errChan, eventChan)
@@ -119,4 +119,82 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 
 	}
 
+}
+
+func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
+	b := newTestSimulatedBroker()
+
+	t.Log("Sim Broker: normal cancel request")
+	{
+		order := newTestOrder(15, OrderSell, 100, "1")
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+
+		assert.Len(t, b.confirmedOrders, 1)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 1)
+
+		v := <-b.eventChan
+		switch (*v).(type) {
+		case *OrderConfirmationEvent:
+			t.Log("OK! Got confirmation event as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", (*v).getName())
+		}
+
+		order.State = ConfirmedOrder // Mock it
+
+		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: order.Id})
+
+		assert.Len(t, b.confirmedOrders, 0)
+		assert.Len(t, b.canceledOrders, 1)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 1)
+
+		v = <-b.eventChan
+		switch (*v).(type) {
+		case *OrderCancelEvent:
+			t.Log("OK! Got OrderCancelEvent as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderCancelEvent. Got %v", (*v).getName())
+		}
+
+	}
+
+	t.Log("Sim Broker: cancel already canceled order")
+	{
+		ordId := ""
+		for k, _ := range b.canceledOrders {
+			ordId = k
+		}
+
+		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: ordId})
+		v := <-b.errChan
+		assert.Error(t, v, "Sim broker: Can't cancel order. ID not found in confirmed. ")
+	}
+
+	t.Log("Sim broker: cancel not existing order")
+	{
+		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "Not existing ID"})
+		v := <-b.errChan
+		assert.Error(t, v, "Sim broker: Can't cancel order. ID not found in confirmed. ")
+	}
+
+	t.Log("Sim broker: cancel order with not confirmed status")
+	{
+		order := newTestOrder(15, OrderSell, 100, "id2")
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+
+		v := <-b.eventChan
+		switch (*v).(type) {
+		case *OrderConfirmationEvent:
+			t.Log("OK! Got confirmation event as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", (*v).getName())
+		}
+
+		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "id2"})
+		err := <-b.errChan
+		assert.Error(t, err, "Sim broker: Can't cancel order. Order state is not ConfirmedOrder ")
+
+	}
 }

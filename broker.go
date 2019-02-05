@@ -9,6 +9,7 @@ import (
 type IBroker interface {
 	Connect(errChan chan error, eventChan chan *event) error
 	OnNewOrder(e *NewOrderEvent)
+	OnCancelRequest(e *OrderCancelRequestEvent)
 	IsSimulated() bool
 	OnCandleClose(candle *marketdata.Candle)
 	OnCandleOpen(price float64)
@@ -73,6 +74,23 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 	go b.newEvent(&confEvent)
 
 	b.confirmedOrders[e.LinkedOrder.Id] = e.LinkedOrder
+}
+
+func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
+	if _, ok := b.confirmedOrders[e.OrdId]; !ok {
+		go b.newError(errors.New("Sim broker: Can't cancel order. ID not found in confirmed. "))
+		return
+	}
+	if b.confirmedOrders[e.OrdId].State != ConfirmedOrder{
+		go b.newError(errors.New("Sim broker: Can't cancel order. Order state is not ConfirmedOrder "))
+		return
+	}
+	b.canceledOrders[e.OrdId] = b.confirmedOrders[e.OrdId]
+	delete(b.confirmedOrders, e.OrdId)
+	orderCancelE := OrderCancelEvent{OrdId: e.OrdId, Time: e.Time.Add(time.Duration(b.delay) * time.Millisecond)}
+
+	go b.newEvent(&orderCancelE)
+
 }
 
 func (b *SimulatedBroker) newEvent(e event) {
