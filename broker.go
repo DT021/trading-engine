@@ -4,6 +4,7 @@ import (
 	"alex/marketdata"
 	"errors"
 	"time"
+	"math"
 )
 
 type IBroker interface {
@@ -13,20 +14,25 @@ type IBroker interface {
 	IsSimulated() bool
 	OnCandleClose(candle *marketdata.Candle)
 	OnCandleOpen(price float64)
-	OnTick(candle *marketdata.Tick)
+	OnTick(tick *marketdata.Tick)
 	NextEvent()
 	PopEvent()
 }
 
 type SimulatedBroker struct {
-	errChan         chan error
-	eventChan       chan *event
-	filledOrders    map[string]*Order
-	canceledOrders  map[string]*Order
-	confirmedOrders map[string]*Order
-	rejectedOrders  map[string]*Order
-	allOrders       map[string]*Order
-	delay           int64
+	errChan            chan error
+	eventChan          chan *event
+	filledOrders       map[string]*Order
+	canceledOrders     map[string]*Order
+	confirmedOrders    map[string]*Order
+	rejectedOrders     map[string]*Order
+	allOrders          map[string]*Order
+	delay              int64
+	hasQuotesAndTrades bool
+}
+
+func (b *SimulatedBroker) IsSimulated() bool {
+	return true
 }
 
 func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan *event) error {
@@ -81,7 +87,7 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 		go b.newError(errors.New("Sim broker: Can't cancel order. ID not found in confirmed. "))
 		return
 	}
-	if b.confirmedOrders[e.OrdId].State != ConfirmedOrder{
+	if b.confirmedOrders[e.OrdId].State != ConfirmedOrder {
 		go b.newError(errors.New("Sim broker: Can't cancel order. Order state is not ConfirmedOrder "))
 		return
 	}
@@ -90,6 +96,156 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 	orderCancelE := OrderCancelEvent{OrdId: e.OrdId, Time: e.Time.Add(time.Duration(b.delay) * time.Millisecond)}
 
 	go b.newEvent(&orderCancelE)
+
+}
+
+func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
+	if len(b.confirmedOrders) == 0 {
+		return
+	}
+
+	for _, o := range b.confirmedOrders {
+		b.checkOrderExecutionOnTick(o, tick)
+	}
+
+}
+
+func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketdata.Tick) {
+	if order.State != ConfirmedOrder {
+		go b.newError(errors.New("Sim broker: Can't check execution. Order is not confirmed. "))
+		return
+	}
+
+	switch order.Type {
+	case MarketOrder:
+		b.checkOnTickMarket(order, tick)
+		return
+	case LimitOrder:
+		b.checkOnTickMarket(order, tick)
+		return
+	case StopOrder:
+		b.checkOnTickStop(order, tick)
+		return
+	case LimitOnClose:
+		b.checkOnTickLOC(order, tick)
+		return
+	case LimitOnOpen:
+		b.checkOnTickLOO(order, tick)
+		return
+	case MarketOnOpen:
+		b.checkOnTickMOO(order, tick)
+		return
+	case MarketOnClose:
+		b.checkOnTickMOC(order, tick)
+		return
+	default:
+		go b.newError(errors.New("Sim Broker: can't check execution. Unknow order type: " + string(order.Type)))
+	}
+
+}
+
+func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
+
+}
+
+func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick) {
+	if !order.isValid() {
+		go b.newError(errors.New("Sim broker: can't check fill. Order is not valid. "))
+		return
+	}
+	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
+		go b.newError(errors.New("Sim broker: can't check fill for order. Wrong order state: " + string(order.State)))
+		return
+	}
+
+	if b.hasQuotesAndTrades && !tick.HasQuote {
+		return
+	}
+	if !b.hasQuotesAndTrades && tick.HasQuote {
+		go b.newError(errors.New("Sim Broker: broker doesn't expect quotes. Only trades. "))
+		return
+	}
+
+	if b.hasQuotesAndTrades {
+		qty := 0
+		price := math.NaN()
+		lvsQty := order.Qty - order.ExecQty
+
+		if order.Side == OrderBuy {
+			if int64(lvsQty) > tick.AskSize { //Todo Smell
+				qty = int(tick.AskSize)
+			} else {
+				qty = lvsQty
+			}
+
+			price = tick.AskPrice
+
+		} else { //Short order logic + sanity check for Side issues
+			if order.Side != OrderSell {
+				go b.newError(errors.New("Sim Broker: unknown order side: " + string(order.Side)))
+				return
+			}
+
+			if int64(lvsQty) > tick.BidSize { //Todo Smell
+				qty = int(tick.BidSize)
+			} else {
+				qty = lvsQty
+			}
+
+			price = tick.BidPrice
+		}
+		fillE := OrderFillEvent{
+			OrdId:  order.Id,
+			Symbol: order.Symbol,
+			Price:  price,
+			Qty:    qty,
+			Time:   tick.Datetime,
+		}
+		if qty == lvsQty {
+			delete(b.confirmedOrders, order.Id)
+			b.filledOrders[order.Id] = order
+		}
+
+		go b.newEvent(&fillE)
+
+	} else { //If broker accepts only trades without quotes
+		if !tick.HasTrade {
+			go b.newError(errors.New("Sim Broker: tick doesn't contain trade. "))
+			return
+		}
+
+		fillE := OrderFillEvent{
+			OrdId:  order.Id,
+			Symbol: order.Symbol,
+			Price:  tick.LastPrice,
+			Qty:    order.Qty,
+			Time:   tick.Datetime,
+		}
+
+		delete(b.confirmedOrders, order.Id)
+		b.filledOrders[order.Id] = order
+		go b.newEvent(&fillE)
+	}
 
 }
 
