@@ -21,18 +21,19 @@ type IBroker interface {
 }
 
 type SimulatedBroker struct {
-	errChan              chan error
-	eventChan            chan *event
-	filledOrders         map[string]*Order
-	canceledOrders       map[string]*Order
-	confirmedOrders      map[string]*Order
-	rejectedOrders       map[string]*Order
-	allOrders            map[string]*Order
-	delay                int64
-	hasQuotesAndTrades   bool
-	strictLimitOrders    bool
-	marketOpenUntilTime  TimeOfDay
-	marketCloseUntilTime TimeOfDay
+	errChan                chan error
+	eventChan              chan *event
+	filledOrders           map[string]*Order
+	canceledOrders         map[string]*Order
+	confirmedOrders        map[string]*Order
+	rejectedOrders         map[string]*Order
+	allOrders              map[string]*Order
+	delay                  int64
+	hasQuotesAndTrades     bool
+	strictLimitOrders      bool
+	marketOpenUntilTime    TimeOfDay
+	marketCloseUntilTime   TimeOfDay
+	checkExecutionsOnTicks bool
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -100,31 +101,6 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 
 }
 
-func (b *SimulatedBroker) validateOrderModificationRequest(ordId string, modType string) error {
-	if _, ok := b.confirmedOrders[ordId]; !ok {
-		err := ErrOrderNotFoundInConfirmedMap{
-			OrdId:   ordId,
-			Message: fmt.Sprintf("Can't %v order.", modType),
-			Caller:  "Sim Broker",
-		}
-		return &err
-
-	}
-	if b.confirmedOrders[ordId].State != ConfirmedOrder && b.confirmedOrders[ordId].State != PartialFilledOrder {
-		err := ErrUnexpectedOrderState{
-			OrdId:         ordId,
-			ActualState:   string(b.confirmedOrders[ordId].State),
-			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
-			Message:       fmt.Sprintf("Can't %v order.", modType),
-			Caller:        "Sim Broker",
-		}
-		return &err
-
-	}
-
-	return nil
-}
-
 func (b *SimulatedBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
 	err := b.validateOrderModificationRequest(e.OrdId, "replace")
 	if err != nil {
@@ -153,7 +129,52 @@ func (b *SimulatedBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
 
 }
 
+func (b *SimulatedBroker) validateOrderModificationRequest(ordId string, modType string) error {
+	if _, ok := b.confirmedOrders[ordId]; !ok {
+		err := ErrOrderNotFoundInConfirmedMap{
+			OrdId:   ordId,
+			Message: fmt.Sprintf("Can't %v order.", modType),
+			Caller:  "Sim Broker",
+		}
+		return &err
+
+	}
+	if b.confirmedOrders[ordId].State != ConfirmedOrder && b.confirmedOrders[ordId].State != PartialFilledOrder {
+		err := ErrUnexpectedOrderState{
+			OrdId:         ordId,
+			ActualState:   string(b.confirmedOrders[ordId].State),
+			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
+			Message:       fmt.Sprintf("Can't %v order.", modType),
+			Caller:        "Sim Broker",
+		}
+		return &err
+
+	}
+
+	return nil
+}
+
+func (b *SimulatedBroker) OnCandleOpen(e *CandleOpenEvent) {
+	if b.checkExecutionsOnTicks {
+		return
+	}
+
+	//Todo
+
+}
+
+func (b *SimulatedBroker) OnCandleClose(e *CandleCloseEvent) {
+	if b.checkExecutionsOnTicks {
+		return
+	}
+	//todo
+
+}
+
 func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
+	if !b.checkExecutionsOnTicks {
+		return
+	}
 	if !b.tickIsValid(tick) {
 		err := ErrBrokenTick{
 			Tick:    *tick,
