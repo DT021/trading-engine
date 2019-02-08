@@ -170,14 +170,15 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 
 		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: ordId})
 		v := <-b.errChan
-		assert.Error(t, v, "Sim broker: Can't cancel order. ID not found in confirmed. ")
+		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
+
 	}
 
 	t.Log("Sim broker: cancel not existing order")
 	{
 		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "Not existing ID"})
 		v := <-b.errChan
-		assert.Error(t, v, "Sim broker: Can't cancel order. ID not found in confirmed. ")
+		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
 	}
 
 	t.Log("Sim broker: cancel order with not confirmed status")
@@ -195,7 +196,107 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 
 		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "id2"})
 		err := <-b.errChan
-		assert.Error(t, err, "Sim broker: Can't cancel order. Order state is not ConfirmedOrder ")
+		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
+
+	}
+}
+
+func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
+	b := newTestSimulatedBroker()
+
+	t.Log("Sim Broker: normal replace request")
+	{
+		order := newTestOrder(15, OrderSell, 100, "1")
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+
+		assert.Len(t, b.confirmedOrders, 1)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 1)
+
+		v := <-b.eventChan
+		switch (*v).(type) {
+		case *OrderConfirmationEvent:
+			t.Log("OK! Got confirmation event as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", (*v).getName())
+		}
+
+		order.State = ConfirmedOrder // Mock it
+
+		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 15.5})
+
+		assert.Len(t, b.confirmedOrders, 1)
+		assert.Len(t, b.canceledOrders, 0)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 1)
+
+		v = <-b.eventChan
+		switch e := (*v).(type) {
+		case *OrderReplacedEvent:
+			t.Log("OK! Got OrderReplacedEvent as expected")
+			assert.Equal(t, 15.5, e.NewPrice)
+			assert.Equal(t, order.Id, e.OrdId)
+		default:
+			t.Fatalf("Fatal.Expected OrderCancelEvent. Got %v", (*v).getName())
+		}
+
+	}
+
+	t.Log("Sim Broker: replace request with invalid price")
+	{
+		order := newTestOrder(15, OrderSell, 100, "1_")
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+
+		assert.Len(t, b.confirmedOrders, 2)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 2)
+
+		v := <-b.eventChan
+		switch (*v).(type) {
+		case *OrderConfirmationEvent:
+			t.Log("OK! Got confirmation event as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", (*v).getName())
+		}
+
+		order.State = ConfirmedOrder // Mock it
+
+		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 0})
+
+		assert.Len(t, b.confirmedOrders, 2)
+		assert.Len(t, b.canceledOrders, 0)
+		assert.Len(t, b.rejectedOrders, 0)
+		assert.Len(t, b.allOrders, 2)
+
+		err := <-b.errChan
+		assert.NotNil(t, err)
+		assert.IsType(t, &ErrInvalidRequestPrice{}, err)
+
+	}
+
+	t.Log("Sim broker: replace not existing order")
+	{
+		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: "Not existing ID", NewPrice: 15.0})
+		v := <-b.errChan
+		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
+	}
+
+	t.Log("Sim broker: replace order with not confirmed status")
+	{
+		order := newTestOrder(15, OrderSell, 100, "id2")
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+
+		v := <-b.eventChan
+		switch (*v).(type) {
+		case *OrderConfirmationEvent:
+			t.Log("OK! Got confirmation event as expected")
+		default:
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", (*v).getName())
+		}
+
+		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: "id2"})
+		err := <-b.errChan
+		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
 	}
 }

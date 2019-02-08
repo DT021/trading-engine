@@ -12,7 +12,18 @@ type ErrBrokenTick struct {
 }
 
 func (e *ErrBrokenTick) Error() string {
-	return fmt.Sprintf("%v: ErrBrokenTick (id:%v). %v", e.Caller, e.Tick, e.Message)
+	return fmt.Sprintf("%v: ErrBrokenTick (tick:%v). %v", e.Caller, e.Tick, e.Message)
+
+}
+
+type ErrInvalidRequestPrice struct {
+	Price float64
+	Message string
+	Caller  string
+}
+
+func (e *ErrInvalidRequestPrice) Error() string {
+	return fmt.Sprintf("%v: ErrInvalidRequestPrice (Price:%v). %v", e.Caller, e.Price, e.Message)
 
 }
 

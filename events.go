@@ -178,6 +178,8 @@ func (c *OrderCancelRequestEvent) getTime() time.Time {
 }
 
 type OrderReplaceRequestEvent struct {
+	OrdId string
+	NewPrice float64
 	Time time.Time
 }
 

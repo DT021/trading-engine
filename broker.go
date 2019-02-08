@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 	"math"
+	"fmt"
 )
 
 type IBroker interface {
@@ -86,12 +87,9 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 }
 
 func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
-	if _, ok := b.confirmedOrders[e.OrdId]; !ok {
-		go b.newError(errors.New("Sim broker: Can't cancel order. ID not found in confirmed. "))
-		return
-	}
-	if b.confirmedOrders[e.OrdId].State != ConfirmedOrder {
-		go b.newError(errors.New("Sim broker: Can't cancel order. Order state is not ConfirmedOrder "))
+	err := b.validateOrderModificationRequest(e.OrdId, "cancel")
+	if err != nil {
+		go b.newError(err)
 		return
 	}
 	b.canceledOrders[e.OrdId] = b.confirmedOrders[e.OrdId]
@@ -99,6 +97,59 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 	orderCancelE := OrderCancelEvent{OrdId: e.OrdId, Time: e.Time.Add(time.Duration(b.delay) * time.Millisecond)}
 
 	go b.newEvent(&orderCancelE)
+
+}
+
+func (b *SimulatedBroker) validateOrderModificationRequest(ordId string, modType string) error {
+	if _, ok := b.confirmedOrders[ordId]; !ok {
+		err := ErrOrderNotFoundInConfirmedMap{
+			OrdId:   ordId,
+			Message: fmt.Sprintf("Can't %v order.", modType),
+			Caller:  "Sim Broker",
+		}
+		return &err
+
+	}
+	if b.confirmedOrders[ordId].State != ConfirmedOrder && b.confirmedOrders[ordId].State != PartialFilledOrder {
+		err := ErrUnexpectedOrderState{
+			OrdId:         ordId,
+			ActualState:   string(b.confirmedOrders[ordId].State),
+			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
+			Message:       fmt.Sprintf("Can't %v order.", modType),
+			Caller:        "Sim Broker",
+		}
+		return &err
+
+	}
+
+	return nil
+}
+
+func (b *SimulatedBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
+	err := b.validateOrderModificationRequest(e.OrdId, "replace")
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	if math.IsNaN(e.NewPrice) || e.NewPrice == 0 {
+		err := ErrInvalidRequestPrice{
+			Price:   e.NewPrice,
+			Message: fmt.Sprintf("Can't replace order: %v", e.OrdId),
+			Caller:  "Sim Broker",
+		}
+		go b.newError(&err)
+		return
+
+	}
+
+	replacedEvent := OrderReplacedEvent{
+		OrdId:    e.OrdId,
+		NewPrice: e.NewPrice,
+		Time:     e.Time.Add(time.Duration(b.delay) * time.Millisecond),
+	}
+
+	go b.newEvent(&replacedEvent)
 
 }
 
