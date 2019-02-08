@@ -29,7 +29,7 @@ type SimulatedBroker struct {
 	allOrders          map[string]*Order
 	delay              int64
 	hasQuotesAndTrades bool
-	strictLimitOrders bool
+	strictLimitOrders  bool
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -162,6 +162,139 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) {
+	if !order.isValid() {
+		go b.newError(errors.New("Sim broker: can't check fill. Order is not valid. "))
+		return
+	}
+
+	if order.Type != LimitOrder {
+		go b.newError(errors.New("Sim broker: wrong order type in checkOnTickLimit. "))
+		return
+	}
+
+	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
+		go b.newError(errors.New("Sim broker: can't check fill for order. Wrong order state: " + string(order.State)+ " Id: "+order.Id) )
+		return
+	}
+
+	if _, ok := b.confirmedOrders[order.Id]; !ok {
+		return
+	}
+
+	if !tick.HasTrade {
+		return
+	}
+
+	if math.IsNaN(tick.LastPrice) {
+		return
+	}
+	lvsQty := order.Qty - order.ExecQty
+	if lvsQty <= 0 {
+		go b.newError(errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. "))
+		return
+	}
+	switch order.Side {
+	case OrderSell: //ToDo smell
+		if tick.LastPrice > order.Price {
+			qty := lvsQty
+			if tick.LastSize < int64(qty) {
+				qty = int(tick.LastSize)
+			}
+
+			fillE := OrderFillEvent{
+				OrdId:  order.Id,
+				Symbol: order.Symbol,
+				Price:  order.Price,
+				Qty:    qty,
+				Time:   tick.Datetime,
+			}
+
+			if qty == lvsQty {
+				b.filledOrders[order.Id] = order
+				delete(b.confirmedOrders, order.Id)
+			}
+			go b.newEvent(&fillE)
+			return
+
+		} else {
+			if tick.LastPrice == order.Price && !b.strictLimitOrders {
+				qty := lvsQty
+				if tick.LastSize < int64(qty) {
+					qty = int(tick.LastSize)
+				}
+
+				fillE := OrderFillEvent{
+					OrdId:  order.Id,
+					Symbol: order.Symbol,
+					Price:  order.Price,
+					Qty:    qty,
+					Time:   tick.Datetime,
+				}
+
+				if qty == lvsQty {
+					b.filledOrders[order.Id] = order
+					delete(b.confirmedOrders, order.Id)
+				}
+
+				go b.newEvent(&fillE)
+				return
+			} else {
+				return
+			}
+		}
+
+	case OrderBuy:
+		if tick.LastPrice < order.Price {
+			qty := lvsQty
+			if tick.LastSize < int64(qty) {
+				qty = int(tick.LastSize)
+			}
+
+			fillE := OrderFillEvent{
+				OrdId:  order.Id,
+				Symbol: order.Symbol,
+				Price:  order.Price,
+				Qty:    qty,
+				Time:   tick.Datetime,
+			}
+
+			if qty == lvsQty {
+				b.filledOrders[order.Id] = order
+				delete(b.confirmedOrders, order.Id)
+			}
+
+			go b.newEvent(&fillE)
+			return
+
+		} else {
+			if tick.LastPrice == order.Price && !b.strictLimitOrders {
+				qty := lvsQty
+				if tick.LastSize < int64(qty) {
+					qty = int(tick.LastSize)
+				}
+
+				fillE := OrderFillEvent{
+					OrdId:  order.Id,
+					Symbol: order.Symbol,
+					Price:  order.Price,
+					Qty:    qty,
+					Time:   tick.Datetime,
+				}
+				if qty == lvsQty {
+					b.filledOrders[order.Id] = order
+					delete(b.confirmedOrders, order.Id)
+				}
+				go b.newEvent(&fillE)
+				return
+			} else {
+				return
+			}
+		}
+	default:
+		go b.newError(errors.New("Sim broker: can't check fill for order. Unknown side. "))
+		return
+
+	}
 
 }
 
