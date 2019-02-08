@@ -227,12 +227,11 @@ func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
 }
 
 func getTestSimBrokerGeneratedEvent(t *testing.T, b *SimulatedBroker) *event {
-	//time.Sleep(time.Duration(b.delay*2) * time.Millisecond)
+
 	select {
 	case v := <-b.eventChan:
 		return v
-		/*default:
-			return nil*/
+
 	}
 	return nil
 }
@@ -604,15 +603,16 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 			b.checkOnTickMarket(order, &tick)
 			err := <-b.errChan
 			assert.NotNil(t, err)
+			assert.IsType(t, &ErrInvalidOrder{}, err)
 			assertNoEventsGeneratedByBroker(t, b)
 		}
 
 		t.Log("Sim broker: put error in chan when order is not in Confirmed or PartialFilledState")
 		{
-			order := newTestOrder(20.0, OrderSell, 100, "Market7")
+			order := newTestOrder(math.NaN(), OrderSell, 100, "Market7")
 			order.Type = MarketOrder
 			order.State = NewOrder
-			assert.False(t, order.isValid())
+			assert.True(t, order.isValid())
 			b.confirmedOrders[order.Id] = order
 
 			tick := marketdata.Tick{
@@ -628,20 +628,41 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 			b.checkOnTickMarket(order, &tick)
 			err := <-b.errChan
 			assert.NotNil(t, err)
+			assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 			assertNoEventsGeneratedByBroker(t, b)
 		}
 
-		//Todo add test when we put not market order. should be error
+		t.Log("Sim broker: test when we put not market order. should be error")
+		{
+			order := newTestOrder(20.02, OrderSell, 100, "Market9")
+
+
+			assert.True(t, order.isValid())
+			b.confirmedOrders[order.Id] = order
+
+			tick := marketdata.Tick{
+				LastPrice: 20.01,
+				LastSize:  200,
+				BidPrice:  19.95,
+				AskPrice:  20.01,
+				BidSize:   100,
+				AskSize:   200,
+				HasTrade:  true,
+			}
+
+			b.checkOnTickMarket(order, &tick)
+			err := <-b.errChan
+			assert.NotNil(t, err)
+			assert.IsType(t, &ErrUnexpectedOrderType{}, err)
+			assertNoEventsGeneratedByBroker(t, b)
+		}
+
+
 	}
 }
 
 func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 	b := newTestSimulatedBroker()
-
-	t.Log("Sim broker: test tick and order on different symbols")
-	{
-		//todo
-	}
 
 	t.Log("Sim broker: test unknow order side")
 	{
@@ -672,7 +693,8 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assertNoEventsGeneratedByBroker(t, b)
 		err := getTestSimBrokerGeneratedErrors(t, b)
 
-		assert.NotNil(t, err) //Todo сделать проверку на конкретные ошибки
+		assert.NotNil(t, err)
+		assert.IsType(t, &ErrUnexpectedOrderType{}, err)
 
 		delete(b.confirmedOrders, order.Id)
 
@@ -702,7 +724,8 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assertNoEventsGeneratedByBroker(t, b)
 		err := getTestSimBrokerGeneratedErrors(t, b)
 
-		assert.NotNil(t, err) //Todo сделать проверку на конкретные ошибки
+		assert.NotNil(t, err)
+		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
 		delete(b.filledOrders, order.Id)
 	}
@@ -730,7 +753,8 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, b.confirmedOrders, 1)
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b) //Todo сделать проверку на конкретные ошибки
+		err := getTestSimBrokerGeneratedErrors(t, b)
+		assert.IsType(t, &ErrInvalidOrder{}, err)
 
 		assert.NotNil(t, err)
 
@@ -804,7 +828,8 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, NewOrder, order.State)
 
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b) //Todo сделать проверку на конкретные ошибки
+		err := getTestSimBrokerGeneratedErrors(t, b)
+		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
 		assert.NotNil(t, err)
 	}

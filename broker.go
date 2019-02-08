@@ -161,19 +161,47 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 
 }
 
-func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) {
+func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType OrderType) error {
 	if !order.isValid() {
-		go b.newError(errors.New("Sim broker: can't check fill. Order is not valid. "))
-		return
+		err := ErrInvalidOrder{
+			OrdId:   order.Id,
+			Message: "Got in checkOnTickLimit",
+			Caller:  "Sim Broker",
+		}
+
+		return &err
 	}
 
-	if order.Type != LimitOrder {
-		go b.newError(errors.New("Sim broker: wrong order type in checkOnTickLimit. "))
-		return
+	if order.Type != expectedType {
+		err := ErrUnexpectedOrderType{
+			OrdId:        order.Id,
+			ActualType:   string(order.Type),
+			ExpectedType: string(expectedType),
+			Message:      "Got in checkOnTickLimit",
+			Caller:       "Sim Broker",
+		}
+		return &err
 	}
 
 	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
-		go b.newError(errors.New("Sim broker: can't check fill for order. Wrong order state: " + string(order.State)+ " Id: "+order.Id) )
+		err := ErrUnexpectedOrderState{
+			OrdId:         order.Id,
+			ActualState:   string(order.State),
+			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
+			Message:       "Got in checkOnTickLimit",
+			Caller:        "Sim Broker",
+		}
+		return &err
+	}
+
+	return nil
+}
+
+func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) {
+
+	err := b.validateOrderForExecution(order, LimitOrder)
+	if err != nil {
+		go b.newError(err)
 		return
 	}
 
@@ -303,12 +331,9 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick) {
-	if !order.isValid() {
-		go b.newError(errors.New("Sim broker: can't check fill. Order is not valid. "))
-		return
-	}
-	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
-		go b.newError(errors.New("Sim broker: can't check fill for order. Wrong order state: " + string(order.State)))
+	err := b.validateOrderForExecution(order, MarketOrder)
+	if err != nil {
+		go b.newError(err)
 		return
 	}
 
