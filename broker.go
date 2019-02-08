@@ -154,10 +154,63 @@ func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
+	err := b.validateOrderForExecution(order, MarketOnOpen)
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	if !tick.IsOpening {
+		return
+	}
+
+	if !tick.HasTrade {
+		return
+	}
+
+	fillE := OrderFillEvent{
+		OrdId:  order.Id,
+		Symbol: order.Symbol,
+		Price:  tick.LastPrice,
+		Qty:    order.Qty,
+		Time:   tick.Datetime,
+	}
+	b.updateOrdersMaps(order, order.Qty)
+	go b.newEvent(&fillE)
+	return
 
 }
 
 func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
+	//Todo подумать над реализацией когда отркрывающего тика вообще нет
+	err := b.validateOrderForExecution(order, MarketOnClose)
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	if !tick.IsClosing {
+		return
+	}
+
+	if !tick.HasTrade {
+		return
+	}
+
+	fillE := OrderFillEvent{
+		OrdId:  order.Id,
+		Symbol: order.Symbol,
+		Price:  tick.LastPrice,
+		Qty:    order.Qty,
+		Time:   tick.Datetime,
+	}
+	b.updateOrdersMaps(order, order.Qty)
+	go b.newEvent(&fillE)
+	return
+
+}
+
+func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, auctionPrice float64) {
 
 }
 
