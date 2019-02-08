@@ -20,16 +20,18 @@ type IBroker interface {
 }
 
 type SimulatedBroker struct {
-	errChan            chan error
-	eventChan          chan *event
-	filledOrders       map[string]*Order
-	canceledOrders     map[string]*Order
-	confirmedOrders    map[string]*Order
-	rejectedOrders     map[string]*Order
-	allOrders          map[string]*Order
-	delay              int64
-	hasQuotesAndTrades bool
-	strictLimitOrders  bool
+	errChan              chan error
+	eventChan            chan *event
+	filledOrders         map[string]*Order
+	canceledOrders       map[string]*Order
+	confirmedOrders      map[string]*Order
+	rejectedOrders       map[string]*Order
+	allOrders            map[string]*Order
+	delay                int64
+	hasQuotesAndTrades   bool
+	strictLimitOrders    bool
+	marketOpenUntilTime  TimeOfDay
+	marketCloseUntilTime TimeOfDay
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -146,10 +148,120 @@ func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketda
 }
 
 func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
+	err := b.validateOrderForExecution(order, LimitOnOpen)
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	if !tick.IsOpening {
+		if b.marketOpenUntilTime.Before(tick.Datetime) {
+			b.updateCanceledOrders(order)
+			cancelE := OrderCancelEvent{
+				OrdId: order.Id,
+				Time:  tick.Datetime,
+			}
+			go b.newEvent(&cancelE)
+		}
+		return
+	}
+
+	b.checkOnTickLimitAuction(order, tick)
 
 }
 
 func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
+	err := b.validateOrderForExecution(order, LimitOnClose)
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	if !tick.IsClosing {
+		if b.marketCloseUntilTime.Before(tick.Datetime) {
+			b.updateCanceledOrders(order)
+			cancelE := OrderCancelEvent{
+				OrdId: order.Id,
+				Time:  tick.Datetime,
+			}
+			go b.newEvent(&cancelE)
+		}
+		return
+	}
+
+	b.checkOnTickLimitAuction(order, tick)
+
+}
+
+func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata.Tick) {
+	switch order.Side {
+	case OrderSell:
+		if tick.LastPrice < order.Price {
+			cancelE := OrderCancelEvent{
+				OrdId: order.Id,
+				Time:  tick.Datetime,
+			}
+			b.updateCanceledOrders(order)
+			go b.newEvent(&cancelE)
+			return
+		}
+
+	case OrderBuy:
+		if tick.LastPrice > order.Price {
+			cancelE := OrderCancelEvent{
+				OrdId: order.Id,
+				Time:  tick.Datetime,
+			}
+			b.updateCanceledOrders(order)
+			go b.newEvent(&cancelE)
+			return
+		}
+
+	default:
+		err := ErrUnknownOrderSide{
+			OrdId:   order.Id,
+			Message: "From checkOnTickLimitAuction",
+			Caller:  "Sim Broker",
+		}
+		go b.newError(&err)
+		return
+
+	}
+
+	if tick.LastPrice == order.Price && b.strictLimitOrders {
+		cancelE := OrderCancelEvent{
+			OrdId: order.Id,
+			Time:  tick.Datetime,
+		}
+		b.updateCanceledOrders(order)
+		go b.newEvent(&cancelE)
+		return
+	}
+
+	execQty := order.Qty
+	if execQty > int(tick.LastSize) {
+		execQty = int(tick.LastSize)
+	}
+
+	fillE := OrderFillEvent{
+		OrdId:  order.Id,
+		Symbol: order.Symbol,
+		Price:  tick.LastPrice,
+		Qty:    execQty,
+		Time:   tick.Datetime,
+	}
+
+	b.updateFilledOrders(order, execQty)
+	go b.newEvent(&fillE)
+
+	if execQty < order.Qty {
+		b.updateCanceledOrders(order)
+		cancelE := OrderCancelEvent{
+			OrdId: order.Id,
+			Time:  tick.Datetime,
+		}
+		go b.newEvent(&cancelE)
+	}
 
 }
 
@@ -175,7 +287,7 @@ func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
 		Qty:    order.Qty,
 		Time:   tick.Datetime,
 	}
-	b.updateOrdersMaps(order, order.Qty)
+	b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
 	return
 
@@ -204,13 +316,9 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 		Qty:    order.Qty,
 		Time:   tick.Datetime,
 	}
-	b.updateOrdersMaps(order, order.Qty)
+	b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
 	return
-
-}
-
-func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, auctionPrice float64) {
 
 }
 
@@ -254,7 +362,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				Time:   tick.Datetime,
 			}
 
-			b.updateOrdersMaps(order, qty)
+			b.updateFilledOrders(order, qty)
 			go b.newEvent(&fillE)
 			return
 
@@ -273,7 +381,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					Time:   tick.Datetime,
 				}
 
-				b.updateOrdersMaps(order, qty)
+				b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -296,7 +404,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				Time:   tick.Datetime,
 			}
 
-			b.updateOrdersMaps(order, qty)
+			b.updateFilledOrders(order, qty)
 
 			go b.newEvent(&fillE)
 			return
@@ -315,7 +423,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					Qty:    qty,
 					Time:   tick.Datetime,
 				}
-				b.updateOrdersMaps(order, qty)
+				b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -364,7 +472,7 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			Time:   tick.Datetime,
 		}
 
-		b.updateOrdersMaps(order, qty)
+		b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -390,7 +498,7 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			Time:   tick.Datetime,
 		}
 
-		b.updateOrdersMaps(order, qty)
+		b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -456,7 +564,7 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			Qty:    qty,
 			Time:   tick.Datetime,
 		}
-		b.updateOrdersMaps(order, qty)
+		b.updateFilledOrders(order, qty)
 
 		go b.newEvent(&fillE)
 
@@ -474,7 +582,7 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			Time:   tick.Datetime,
 		}
 
-		b.updateOrdersMaps(order, order.Qty)
+		b.updateFilledOrders(order, order.Qty)
 		go b.newEvent(&fillE)
 	}
 
@@ -518,11 +626,16 @@ func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType O
 	return nil
 }
 
-func (b *SimulatedBroker) updateOrdersMaps(order *Order, execQty int) {
+func (b *SimulatedBroker) updateFilledOrders(order *Order, execQty int) {
 	if execQty == order.Qty-order.ExecQty {
 		b.filledOrders[order.Id] = order
 		delete(b.confirmedOrders, order.Id)
 	}
+}
+
+func (b *SimulatedBroker) updateCanceledOrders(order *Order) {
+	b.canceledOrders[order.Id] = order
+	delete(b.confirmedOrders, order.Id)
 }
 
 func (b *SimulatedBroker) newEvent(e event) {

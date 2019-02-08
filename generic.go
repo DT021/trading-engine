@@ -36,6 +36,32 @@ const (
 	ClosedTrade TradeType = "ClosedTrade"
 )
 
+type TimeOfDay struct {
+	Hour   int
+	Minute int
+	Second int
+}
+
+func (t *TimeOfDay) Before(datetime time.Time) bool {
+	if t.Hour < datetime.Hour() {
+		return true
+	}
+	if t.Hour > datetime.Hour() {
+		return false
+	}
+	if t.Minute < datetime.Minute() {
+		return true
+	}
+	if t.Minute > datetime.Minute() {
+		return false
+	}
+
+	if t.Second < datetime.Second() {
+		return true
+	}
+	return false
+}
+
 type Order struct {
 	Side      OrderSide
 	Qty       int
