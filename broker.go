@@ -103,6 +103,17 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 }
 
 func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
+	if !b.tickIsValid(tick) {
+		err := ErrBrokenTick{
+			Tick:    *tick,
+			Message: "Got in OnTick",
+			Caller:  "Sim Broker",
+		}
+
+		go b.newError(&err)
+		return
+
+	}
 	if len(b.confirmedOrders) == 0 {
 		return
 	}
@@ -113,18 +124,29 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 
 }
 
-func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketdata.Tick) {
-	if order.State != ConfirmedOrder {
-		go b.newError(errors.New("Sim broker: Can't check execution. Order is not confirmed. "))
-		return
+func (b *SimulatedBroker) tickIsValid(tick *marketdata.Tick) bool {
+	if tick.HasQuote {
+		if math.IsNaN(tick.BidPrice) || math.IsNaN(tick.AskPrice) || tick.BidPrice == 0 || tick.AskPrice == 0 {
+			return false
+		}
 	}
+
+	if tick.HasTrade {
+		if math.IsNaN(tick.LastPrice) || tick.LastPrice == 0 || tick.LastSize == 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketdata.Tick) {
 
 	switch order.Type {
 	case MarketOrder:
 		b.checkOnTickMarket(order, tick)
 		return
 	case LimitOrder:
-		b.checkOnTickMarket(order, tick)
+		b.checkOnTickLimit(order, tick)
 		return
 	case StopOrder:
 		b.checkOnTickStop(order, tick)
@@ -142,7 +164,12 @@ func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketda
 		b.checkOnTickMOC(order, tick)
 		return
 	default:
-		go b.newError(errors.New("Sim Broker: can't check execution. Unknow order type: " + string(order.Type)))
+		err := ErrUnknownOrderType{
+			OrdId:   order.Id,
+			Message: "found order with type: " + string(order.Type),
+			Caller:  "Sim Broker",
+		}
+		go b.newError(&err)
 	}
 
 }
@@ -327,10 +354,6 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 	err := b.validateOrderForExecution(order, LimitOrder)
 	if err != nil {
 		go b.newError(err)
-		return
-	}
-
-	if _, ok := b.confirmedOrders[order.Id]; !ok {
 		return
 	}
 
