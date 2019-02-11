@@ -232,6 +232,6 @@ func TestBTM_Run(t *testing.T) {
 		}
 	}
 
-	assertNoErrorsGeneratedByBTM(t, b)
+	assertNoEventsGeneratedByBTM(t, b)
 
 }

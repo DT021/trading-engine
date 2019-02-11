@@ -16,21 +16,23 @@ type IStrategy interface {
 	onCandleOpenHandler(e *CandleOpenEvent)
 	onCandleCloseHandler(e *CandleCloseEvent)
 	onTickHandler(e *NewTickEvent)
-	onTickHistoryHandler(e *TickHistoryEvent) []*event
-	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
+	//onTickHistoryHandler(e *TickHistoryEvent) []*event
+	//onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
 	onOrderFillHandler(e *OrderFillEvent)
 	onOrderCancelHandler(e *OrderCancelEvent)
 	onOrderConfirmHandler(e *OrderConfirmationEvent)
-	onOrderReplacedHandler(e *OrderReplacedEvent) []*event
+	onOrderReplacedHandler(e *OrderReplacedEvent)
 	onOrderRejectedHandler(e *OrderRejectedEvent)
 
-	onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event
+	//onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event
 
 	onTimerTickHandler(e *TimerTickEvent) []*event
 
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
+	New() *IStrategy
+	Connect(eventChan chan *event, errorsChan chan error)
 }
 
 type BasicStrategy struct {
@@ -57,7 +59,7 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) connect(eventChan chan *event, errorsChan chan error) {
+func (b *BasicStrategy) Connect(eventChan chan *event, errorsChan chan error) {
 	if eventChan == nil {
 		panic("Can't connect stategy. Event channel is nil")
 	}

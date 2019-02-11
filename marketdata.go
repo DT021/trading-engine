@@ -18,6 +18,8 @@ type IMarketData interface {
 	Next() *event
 	Pop() *event
 	Run()
+	Connect(errChan chan error, eventChan chan *event)
+	SetSymbols(symbols []string)
 }
 
 type ITimerEventProducer interface {
@@ -37,6 +39,10 @@ type BTM struct {
 	eventChan        chan event
 	Storage          marketdata.Storage
 	fraction         int64
+}
+
+func (m *BTM) SetSymbols(symbols []string){
+	m.Symbols = symbols
 }
 
 func (m *BTM) getFilename() (string, error) {

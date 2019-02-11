@@ -1,71 +1,54 @@
 package engine
 
 type Engine struct {
+	Symbols             []string
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]*IStrategy
-	Events              []*event
+	eventsChan          chan *event
+	errChan             chan error
 }
 
-func (c *Engine) nextEvent() (*event) {
-	if len(c.Events) == 0 {
-		return c.MarketDataConnector.Pop()
+func NewEngine(sp map[string]*IStrategy, broker IBroker, marketdata IMarketData) *Engine {
+	eventChan := make(chan *event)
+	errChan := make(chan error)
+
+	var symbols []string
+	for k := range sp {
+		symbols = append(symbols, k)
+		(*sp[k]).Connect(eventChan, errChan)
 	}
-	lastProduced := *c.Events[0]
-	lastMD := *c.MarketDataConnector.Next()
-	if lastProduced.getTime().After(lastMD.getTime()) {
-		return c.MarketDataConnector.Pop()
+
+	broker.Connect(errChan, eventChan)
+	marketdata.Connect(errChan, eventChan)
+	marketdata.SetSymbols(symbols)
+	eng := Engine{
+		Symbols:             symbols,
+		BrokerConnector:     broker,
+		MarketDataConnector: marketdata,
+		StrategyMap:         sp,
+		eventsChan:          eventChan,
+		errChan:             errChan,
 	}
-	return c.Pop()
+
+	return &eng
 }
 
-func (c *Engine) Pop() *event {
-	e := c.Events[0]
-	if len(c.Events) == 1 {
-		c.Events = []*event{}
+func (c *Engine) getSymbolStrategy(symbol string) *IStrategy {
+	st, ok := c.StrategyMap[symbol]
 
-	} else {
-		c.Events = c.Events[1:]
-	}
-	return e
-}
-
-func (c *Engine) Put(e *event) {
-	if e == nil {
-		return
-	}
-	c.Events = append(c.Events, e)
-}
-
-func (c *Engine) PutMultiply(events []*event) {
-	if events == nil {
-		return
-	}
-	if len(events) == 0 {
-		return
+	if !ok {
+		panic("Strategy for %v not found in map")
 	}
 
-	c.Events = append(c.Events, events...)
-}
-
-func (c *Engine) IsWaiting() bool {
-	if len(c.Events) > 0 {
-		return true
-	}
-	return false
+	return st
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
-	st, ok := c.StrategyMap[e.Symbol]
-
-	if !ok {
-		// ToDo Logger here
-		return
-	}
+	st := c.getSymbolStrategy(e.Symbol)
 
 	if c.BrokerConnector.IsSimulated() {
-		/*genEvents := c.BrokerConnector.OnCandleOpen(e.Price)
-		c.PutMultiply(genEvents)*/ //Todo
+		c.BrokerConnector.OnCandleOpen(e)
 	}
 
 	(*st).onCandleOpenHandler(e)
@@ -73,17 +56,10 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 }
 
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
-	st, ok := c.StrategyMap[e.Symbol]
-
-	if !ok {
-		// ToDo Logger here
-		return
-	}
+	st := c.getSymbolStrategy(e.Symbol)
 
 	if c.BrokerConnector.IsSimulated() {
-		/*
-		genEvents := c.BrokerConnector.OnCandleClose(e.Candle)
-		c.PutMultiply(genEvents)*/ //todo
+		c.BrokerConnector.OnCandleClose(e)
 	}
 
 	(*st).onCandleCloseHandler(e)
@@ -91,57 +67,118 @@ func (c *Engine) eCandleClose(e *CandleCloseEvent) {
 }
 
 func (c *Engine) eNewOrder(e *NewOrderEvent) {
-	c.BrokerConnector.OnNewOrder(e) //todo подумать тут
-}
-
-func (c *Engine) eCancelOrder(e *OrderCancelEvent) {
-
+	c.BrokerConnector.OnNewOrder(e)
 }
 
 func (c *Engine) eTick(e *NewTickEvent) {
+	if e.Tick.Symbol == "" {
+		panic("Tick symbol is empty")
+	}
+	st := c.getSymbolStrategy(e.Tick.Symbol)
+
+	if c.BrokerConnector.IsSimulated() {
+		c.BrokerConnector.OnTick(e.Tick)
+	}
+
+	(*st).onTickHandler(e)
 
 }
 
 func (c *Engine) eFill(e *OrderFillEvent) {
-	st, ok := c.StrategyMap[e.Symbol]
-
-	if !ok {
-		// ToDo Logger here
-		return
-	}
-
+	st := c.getSymbolStrategy(e.Symbol)
 	(*st).onOrderFillHandler(e)
 
 }
 
-func (c *Engine) Run() error {
-    // go c.BrokerConnector.Connect() TODO
-    go c.MarketDataConnector.Run()
+func (c *Engine) eCancelRequest(e *OrderCancelRequestEvent) {
+	if c.BrokerConnector.IsSimulated() {
+		c.BrokerConnector.OnCancelRequest(e)
+	}
+}
+
+func (c *Engine) eOrderCanceled(e *OrderCancelEvent) {
+	st := c.getSymbolStrategy(e.Symbol)
+	(*st).onOrderCancelHandler(e)
+}
+
+func (c *Engine) eReplaceRequest(e *OrderReplaceRequestEvent) {
+	if c.BrokerConnector.IsSimulated() {
+		c.BrokerConnector.OnReplaceRequest(e)
+	}
+}
+
+func (c *Engine) eOrderReplaced(e *OrderReplacedEvent) {
+	st := c.getSymbolStrategy(e.Symbol)
+	(*st).onOrderReplacedHandler(e)
+}
+
+func (c *Engine) eOrderConfirmed(e *OrderConfirmationEvent) {
+	st := c.getSymbolStrategy(e.Symbol)
+	(*st).onOrderConfirmHandler(e)
+}
+
+func (c *Engine) eOrderRejected(e *OrderRejectedEvent) {
+	st := c.getSymbolStrategy(e.Symbol)
+	(*st).onOrderRejectedHandler(e)
+}
+
+func (c *Engine) eEndOfData(e *EndOfDataEvent) {
+	//TODO
+}
+
+func (c *Engine) errorIsCritical(err error) bool {
+	return false
+}
+
+func (c *Engine) logError(err error) {
+
+}
+
+func (c *Engine) shutDown() {
+
+}
+
+func (c *Engine) Run() {
+	c.MarketDataConnector.Run()
 EVENT_LOOP:
 	for {
-		if c.MarketDataConnector.Done() && !c.IsWaiting() {
-			break EVENT_LOOP
-		}
-		e := c.nextEvent()
-		if e == nil {
-			continue EVENT_LOOP
+		select {
+		case e := <-c.eventsChan:
+			switch i := (*e).(type) {
+			case *CandleOpenEvent:
+				c.eCandleOpen(i)
+			case *CandleCloseEvent:
+				c.eCandleClose(i)
+			case *NewTickEvent:
+				c.eTick(i)
+			case *NewOrderEvent:
+				c.eNewOrder(i)
+			case *OrderConfirmationEvent:
+				c.eOrderConfirmed(i)
+			case *OrderCancelRequestEvent:
+				c.eCancelRequest(i)
+			case *OrderReplaceRequestEvent:
+				c.eReplaceRequest(i)
+			case *OrderRejectedEvent:
+				c.eOrderRejected(i)
+			case *OrderCancelEvent:
+				c.eOrderCanceled(i)
+			case *OrderReplacedEvent:
+				c.eOrderReplaced(i)
+			case *OrderFillEvent:
+				c.eFill(i)
+			case *EndOfDataEvent:
+				c.eEndOfData(i)
+				break EVENT_LOOP
+
+			}
+		case e := <-c.errChan:
+			go c.logError(e)
+			if c.errorIsCritical(e) {
+				break EVENT_LOOP
+			}
 		}
 
-		switch i := (*e).(type) {
-		case *CandleOpenEvent:
-			c.eCandleOpen(i)
-		case *CandleCloseEvent:
-			c.eCandleClose(i)
-		case *NewOrderEvent:
-			c.eNewOrder(i)
-		case *OrderCancelEvent:
-			c.eCancelOrder(i)
-		case *NewTickEvent:
-			c.eTick(i)
-		case *OrderFillEvent:
-			c.eFill(i)
-
-		}
 	}
-	return nil
+	c.shutDown()
 }

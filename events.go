@@ -123,6 +123,7 @@ func (c *NewOrderEvent) getTime() time.Time {
 }
 
 type OrderConfirmationEvent struct {
+	Symbol string //todo this will fail
 	OrdId string
 	Time  time.Time
 }
@@ -152,8 +153,9 @@ func (c *OrderFillEvent) getTime() time.Time {
 }
 
 type OrderCancelEvent struct {
-	OrdId string
-	Time  time.Time
+	OrdId  string
+	Time   time.Time
+	Symbol string //Todo this will fail
 }
 
 func (c *OrderCancelEvent) getName() string {
@@ -178,9 +180,9 @@ func (c *OrderCancelRequestEvent) getTime() time.Time {
 }
 
 type OrderReplaceRequestEvent struct {
-	OrdId string
+	OrdId    string
 	NewPrice float64
-	Time time.Time
+	Time     time.Time
 }
 
 func (c *OrderReplaceRequestEvent) getName() string {
@@ -193,6 +195,7 @@ func (c *OrderReplaceRequestEvent) getTime() time.Time {
 
 type OrderReplacedEvent struct {
 	OrdId    string
+	Symbol   string //todo this will fail
 	NewPrice float64
 	Time     time.Time
 }
@@ -206,6 +209,7 @@ func (c *OrderReplacedEvent) getTime() time.Time {
 }
 
 type OrderRejectedEvent struct {
+	Symbol string // todo this will fail
 	OrdId  string
 	Reason string
 	Time   time.Time
@@ -240,5 +244,17 @@ func (c *TimerTickEvent) getName() string {
 }
 
 func (c *TimerTickEvent) getTime() time.Time {
+	return c.Time
+}
+
+type EndOfDataEvent struct {
+	Time time.Time
+}
+
+func (c *EndOfDataEvent) getName() string {
+	return "EndOfDataEvent"
+}
+
+func (c *EndOfDataEvent) getTime() time.Time {
 	return c.Time
 }

@@ -12,12 +12,12 @@ type IBroker interface {
 	Connect(errChan chan error, eventChan chan *event) error
 	OnNewOrder(e *NewOrderEvent)
 	OnCancelRequest(e *OrderCancelRequestEvent)
+	OnReplaceRequest(e *OrderReplaceRequestEvent)
 	IsSimulated() bool
-	OnCandleClose(candle *marketdata.Candle)
-	OnCandleOpen(price float64)
+	OnCandleClose(e *CandleCloseEvent)
+	OnCandleOpen(e *CandleOpenEvent)
 	OnTick(tick *marketdata.Tick)
-	NextEvent()
-	PopEvent()
+
 }
 
 type SimulatedBroker struct {
@@ -80,7 +80,7 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 	}
 
 	b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
-	confEvent := OrderConfirmationEvent{e.LinkedOrder.Id, time.Now()}
+	confEvent := OrderConfirmationEvent{e.LinkedOrder.Symbol, e.LinkedOrder.Id, time.Now()}
 
 	go b.newEvent(&confEvent)
 
