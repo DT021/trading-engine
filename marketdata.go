@@ -23,7 +23,7 @@ type ITimerEventProducer interface {
 	Pop() *event
 }
 
-type BacktestingTickMarketdata struct {
+type BTM struct {
 	Symbols          []string
 	Folder           string
 	LoadQuotes       bool
@@ -36,7 +36,7 @@ type BacktestingTickMarketdata struct {
 	Storage          marketdata.Storage
 }
 
-func (m *BacktestingTickMarketdata) getFilename() (string, error) {
+func (m *BTM) getFilename() (string, error) {
 	if len(m.Symbols) == 0 {
 		return "", errors.New("Symbols len is zero")
 	}
@@ -45,37 +45,63 @@ func (m *BacktestingTickMarketdata) getFilename() (string, error) {
 	for _, v := range m.Symbols {
 		out += v + ","
 	}
-	if m.LoadTicks{
-		out +="LoadTicks,"
+	if m.LoadTicks {
+		out += "LoadTicks,"
 	}
-	if m.LoadQuotes{
+	if m.LoadQuotes {
 		out += "LoadQuotes,"
 	}
-	//todo add dates here
+
+	datesToStringLayout := "2006-01-02 15:04:05"
+	out += m.FromDate.Format(datesToStringLayout) + "," + m.ToDate.Format(datesToStringLayout)
 
 	h := fnv.New32a()
 	h.Write([]byte(out))
-	return strconv.FormatUint(uint64(h.Sum32()), 10), nil
+	return strconv.FormatUint(uint64(h.Sum32()), 10)+".prep", nil
 
 }
 
-func (m *BacktestingTickMarketdata) prepare() {
-	d:= m.FromDate
-	for{
+func (m *BTM) getPrepairedFilePath() string {
+	fpth, err := m.getFilename()
+	if err != nil {
+		panic(err)
+	}
+	return path.Join(m.Folder, fpth)
+}
+
+func (m *BTM) prepare() {
+	d := m.FromDate
+	if m.prepairedDataExists() {
+		err := m.clearPrepairedData()
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	for {
 		m.loadDate(d)
-		d = d.AddDate(0,0, 1)
-		if d.After(m.ToDate){
+		d = d.AddDate(0, 0, 1)
+		if d.After(m.ToDate) {
 			break
 		}
 	}
 }
 
-func (m *BacktestingTickMarketdata) loadDate(date time.Time) {
+func (m *BTM) clearPrepairedData() error {
+	if !m.prepairedDataExists() {
+		return nil
+	}
+
+	err := os.Remove(m.getPrepairedFilePath())
+	return err
+}
+
+func (m *BTM) loadDate(date time.Time) {
 	totalTicks := marketdata.TickArray{}
 	for _, symbol := range m.Symbols {
 		rng := marketdata.DateRange{
-			From:time.Date(date.Year(), date.Month(), date.Minute(), 0, 0, 0, 0, time.UTC),
-			To:time.Date(date.Year(), date.Month(), date.Minute(), 23, 59, 59, 59, time.UTC),
+			From: time.Date(date.Year(), date.Month(), date.Minute(), 0, 0, 0, 0, time.UTC),
+			To:   time.Date(date.Year(), date.Month(), date.Minute(), 23, 59, 59, 59, time.UTC),
 		}
 		symbolTicks, err := m.Storage.GetStoredTicks(symbol, rng, m.LoadQuotes, m.LoadTicks)
 		if err != nil {
@@ -89,15 +115,31 @@ func (m *BacktestingTickMarketdata) loadDate(date time.Time) {
 	}
 }
 
-func (m *BacktestingTickMarketdata) writeDateTicks(ticks marketdata.TickArray) {
+func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
+	if len(ticks) == 0 {
+		return
+	}
 
+	f, err := os.OpenFile(m.getPrepairedFilePath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	if err != nil {
+		panic(err)
+	}
+
+	defer f.Close()
+
+	for _, t := range ticks {
+		if _, err := f.Write([]byte(t.String() + "\n")); err != nil {
+			go m.newError(err)
+		}
+	}
 }
 
-func (m *BacktestingTickMarketdata) newError(err error) {
+func (m *BTM) newError(err error) {
 	m.errChan <- err
 }
 
-func (m *BacktestingTickMarketdata) prepairedDataExists() bool {
+func (m *BTM) prepairedDataExists() bool {
 	filename, err := m.getFilename()
 	if err != nil {
 		panic(err)
@@ -111,7 +153,7 @@ func (m *BacktestingTickMarketdata) prepairedDataExists() bool {
 	return true
 }
 
-func (m *BacktestingTickMarketdata) Run() {
+func (m *BTM) Run() {
 	if !m.prepairedDataExists() {
 		m.prepare()
 	}
@@ -120,7 +162,7 @@ func (m *BacktestingTickMarketdata) Run() {
 
 }
 
-func (m *BacktestingTickMarketdata) genTickEvents() {
+func (m *BTM) genTickEvents() {
 	if !m.prepairedDataExists() {
 		panic("Can't genereate tick events. Prepaired data is not exists. ")
 	}
@@ -128,7 +170,7 @@ func (m *BacktestingTickMarketdata) genTickEvents() {
 
 }
 
-func (m *BacktestingTickMarketdata) Connect(errChan chan error, eventChan chan event) {
+func (m *BTM) Connect(errChan chan error, eventChan chan event) {
 	if errChan == nil {
 		panic("Error chan is nil")
 	}
