@@ -11,6 +11,9 @@ import (
 	"io/ioutil"
 	"encoding/json"
 	"time"
+	"bufio"
+	"strings"
+	"strconv"
 )
 
 func TestBTM_getFilename(t *testing.T) {
@@ -78,6 +81,10 @@ func (s *mockStorage) GetStoredTicks(symbol string, dRange marketdata.DateRange,
 		return nil, err
 	}
 
+	for _, t := range ticks {
+		t.Symbol = symbol
+	}
+
 	return ticks, err
 
 }
@@ -107,7 +114,7 @@ func newTestBTM() *BTM {
 		"Sym7",
 	}
 	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)
-	toDate := time.Date(2018, 10, 2, 0, 0, 0, 0, time.UTC)
+	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
 	storage := mockStorage{folder: "./test_data/json_storage/ticks/quotes_trades"}
 	b := BTM{
 		Symbols:    testSymbols,
@@ -121,14 +128,110 @@ func newTestBTM() *BTM {
 
 	createDirIfNotExists(b.Folder)
 
+	errChan := make(chan error)
+	eventChan := make(chan event)
+
+	b.Connect(errChan, eventChan)
+
 	return &b
 }
 
+func assertNoErrorsGeneratedByBTM(t *testing.T, b *BTM) {
+	select {
+	case v, ok := <-b.errChan:
+		assert.False(t, ok)
+		if ok {
+			t.Errorf("ERROR! Expected no errors. Found: %v", v)
+		}
+	default:
+		t.Log("OK! Error chan is empty")
+		break
+	}
+}
+
+func prepairedDataIsSorted(pth string, t *testing.T) bool {
+	file, err := os.Open(pth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	prevTimeUnix := 0
+	for scanner.Scan() {
+		curTimeUnix, err := strconv.Atoi(strings.Split(scanner.Text(), ",")[0])
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		if curTimeUnix < prevTimeUnix {
+			t.Logf("Curtime %v is less than prevTime %v", curTimeUnix, prevTimeUnix)
+			return false
+		}
+		prevTimeUnix = curTimeUnix
+	}
+
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	return true
+}
+
 func TestBTM_prepare(t *testing.T) {
+	startTime := time.Now()
+
 	b := newTestBTM()
-	n, err := b.getFilename()
+	os.Remove(b.getPrepairedFilePath())
+	_, err := b.getFilename()
 	if err != nil {
 		t.Error(err)
 	}
-	t.Log(n)
+
+	b.prepare()
+	fi, err := os.Stat(b.getPrepairedFilePath())
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.True(t, fi.ModTime().UnixNano() > startTime.UnixNano())
+	assertNoErrorsGeneratedByBTM(t, b)
+	sorted := prepairedDataIsSorted(b.getPrepairedFilePath(), t)
+	assert.True(t, sorted)
+
+}
+
+func assertNoEventsGeneratedByBTM(t *testing.T, b *BTM) {
+	select {
+	case v, ok := <-b.eventChan:
+		assert.False(t, ok)
+		if ok {
+			t.Errorf("ERROR! Expected no events. Found: %v", v)
+		}
+	default:
+		t.Log("OK! Events chan is empty")
+		break
+	}
+}
+
+func TestBTM_Run(t *testing.T) {
+	b := newTestBTM()
+	b.fraction = 1000
+	//os.Remove(b.getPrepairedFilePath())
+	b.Run()
+	totalE := 0
+	var prevTime time.Time
+	for e := range b.eventChan {
+		totalE += 1
+		assert.False(t, e.getTime().Before(prevTime))
+		prevTime = e.getTime()
+		if totalE == 4348 {
+			//assert.Equal(t, -1, (e).(*NewTickEvent).Tick.LastPrice)
+			t.Log("OK! Found last event")
+			break
+		}
+	}
+
+	assertNoErrorsGeneratedByBTM(t, b)
+
 }

@@ -9,6 +9,8 @@ import (
 	"os"
 	"alex/marketdata"
 	"time"
+	"bufio"
+	"strings"
 )
 
 type IMarketData interface {
@@ -34,6 +36,7 @@ type BTM struct {
 	errChan          chan error
 	eventChan        chan event
 	Storage          marketdata.Storage
+	fraction         int64
 }
 
 func (m *BTM) getFilename() (string, error) {
@@ -57,7 +60,7 @@ func (m *BTM) getFilename() (string, error) {
 
 	h := fnv.New32a()
 	h.Write([]byte(out))
-	return strconv.FormatUint(uint64(h.Sum32()), 10)+".prep", nil
+	return strconv.FormatUint(uint64(h.Sum32()), 10) + ".prep", nil
 
 }
 
@@ -100,19 +103,20 @@ func (m *BTM) loadDate(date time.Time) {
 	totalTicks := marketdata.TickArray{}
 	for _, symbol := range m.Symbols {
 		rng := marketdata.DateRange{
-			From: time.Date(date.Year(), date.Month(), date.Minute(), 0, 0, 0, 0, time.UTC),
-			To:   time.Date(date.Year(), date.Month(), date.Minute(), 23, 59, 59, 59, time.UTC),
+			From: time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC),
+			To:   time.Date(date.Year(), date.Month(), date.Day(), 23, 59, 59, 59, time.UTC),
 		}
 		symbolTicks, err := m.Storage.GetStoredTicks(symbol, rng, m.LoadQuotes, m.LoadTicks)
-		if err != nil {
+		if err != nil && symbolTicks != nil {
 			go m.newError(err)
 			continue
 		}
 
 		totalTicks = append(totalTicks, symbolTicks...)
-		totalTicks = totalTicks.Sort()
-		m.writeDateTicks(totalTicks)
+
 	}
+	totalTicks = totalTicks.Sort()
+	m.writeDateTicks(totalTicks)
 }
 
 func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
@@ -137,6 +141,13 @@ func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
 
 func (m *BTM) newError(err error) {
 	m.errChan <- err
+}
+
+func (m *BTM) newEvent(e event) {
+	if m.eventChan == nil {
+		panic("BTM event chan is nil")
+	}
+	m.eventChan <- e
 }
 
 func (m *BTM) prepairedDataExists() bool {
@@ -166,7 +177,107 @@ func (m *BTM) genTickEvents() {
 	if !m.prepairedDataExists() {
 		panic("Can't genereate tick events. Prepaired data is not exists. ")
 	}
-	//Todo
+
+	file, err := os.Open(m.getPrepairedFilePath())
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var prevTick *marketdata.Tick
+	for scanner.Scan() {
+		tick, err := m.parseLineToTick(scanner.Text())
+		if err != nil {
+			panic(err)
+		}
+		if prevTick == nil {
+			prevTick = tick
+			continue
+		}
+
+		delta := tick.Datetime.Sub(prevTick.Datetime)
+		e := NewTickEvent{
+			Tick: tick,
+			Time: tick.Datetime,
+		}
+
+		if delta.Seconds() < 2 {
+			time.Sleep(time.Duration(delta.Nanoseconds()/m.fraction) * time.Nanosecond)
+		} else {
+			time.Sleep(time.Duration(2/m.fraction) * time.Second)
+		}
+
+		m.newEvent(&e)
+
+		prevTick = tick
+
+	}
+
+}
+
+func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
+	lsp := strings.Split(l, ",")
+	if len(lsp) != 16 {
+		return nil, errors.New("Can't parse row: " + l)
+	}
+
+	last, err := strconv.ParseFloat(lsp[2], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	lastSize, err := strconv.ParseInt(lsp[3], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	bid, err := strconv.ParseFloat(lsp[5], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	bidSize, err := strconv.ParseInt(lsp[6], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	ask, err := strconv.ParseFloat(lsp[8], 64)
+	if err != nil {
+		return nil, err
+	}
+
+	askSize, err := strconv.ParseInt(lsp[9], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+
+	i, err := strconv.ParseInt(lsp[0], 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	tm := time.Unix(i, 0)
+
+	tick := marketdata.Tick{
+		Datetime:  tm,
+		Symbol:    lsp[1],
+		LastPrice: last,
+		LastSize:  lastSize,
+		LastExch:  lsp[4],
+		BidPrice:  bid,
+		BidSize:   bidSize,
+		BidExch:   lsp[7],
+		AskPrice:  ask,
+		AskSize:   askSize,
+		AskExch:   lsp[10],
+		CondQuote: lsp[11],
+		Cond1:     lsp[12],
+		Cond2:     lsp[13],
+		Cond3:     lsp[14],
+		Cond4:     lsp[15],
+	}
+
+	return &tick, nil
 
 }
 
