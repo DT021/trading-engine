@@ -6,6 +6,7 @@ import (
 	"time"
 	"errors"
 	"math"
+	"sync"
 )
 
 const (
@@ -32,6 +33,11 @@ type IStrategy interface {
 	candles() marketdata.CandleArray
 
 	Connect(errorsChan chan error, eventChan chan event)
+	//OnTick(tick *marketdata.Tick)
+}
+
+type IUserStrategy interface {
+	OnTick(b *BasicStrategy, tick *marketdata.Tick)
 }
 
 type BasicStrategy struct {
@@ -48,6 +54,8 @@ type BasicStrategy struct {
 	eventChan          chan event
 	errorsChan         chan error
 	lastEventTime      time.Time
+	strategy           IUserStrategy
+	mut                *sync.Mutex
 }
 
 func (b *BasicStrategy) init() {
@@ -82,7 +90,8 @@ func (b *BasicStrategy) OnCandleOpen() {
 
 }
 
-func (b *BasicStrategy) OnTick() {
+func (b *BasicStrategy) OnTick(tick *marketdata.Tick) {
+	b.strategy.OnTick(b, tick)
 
 }
 
@@ -250,7 +259,8 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	if len(b.Ticks) < b.NPeriods {
 		return
 	}
-	b.OnTick()
+
+	b.OnTick(e.Tick)
 
 }
 
@@ -342,7 +352,7 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	}
 }
 
-func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent)  {
+func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
 	if err != nil {
 		go b.error(err)

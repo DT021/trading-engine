@@ -33,6 +33,7 @@ type SimulatedBroker struct {
 	marketOpenUntilTime    TimeOfDay
 	marketCloseUntilTime   TimeOfDay
 	checkExecutionsOnTicks bool
+	fraction               int64
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -738,7 +739,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 	if b.eventChan == nil {
 		panic("Simulated broker event chan is nil")
 	}
-	time.Sleep(time.Duration(b.delay) * time.Millisecond)
+	time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
 	b.eventChan <- e
 
 }

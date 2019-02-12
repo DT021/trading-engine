@@ -2,6 +2,9 @@ package engine
 
 import (
 	"time"
+	"fmt"
+	"log"
+	"os"
 )
 
 type EnginePart interface {
@@ -17,11 +20,11 @@ type Engine struct {
 	errChan             chan error
 	lastTime            time.Time
 	prevEvent           event
-	log                 logger
-
+	log                 log.Logger
+	backtestMode        bool
 }
 
-func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData) *Engine {
+func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, backtestMode bool) *Engine {
 	eventChan := make(chan event)
 	errChan := make(chan error)
 
@@ -43,6 +46,9 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData) 
 		errChan:             errChan,
 	}
 
+	eng.backtestMode = backtestMode
+	eng.prepareLogger()
+
 	return &eng
 }
 
@@ -54,6 +60,16 @@ func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
 	}
 
 	return st
+}
+
+func (c *Engine) prepareLogger() {
+	os.Remove("log.txt") // Todo может убрать потом
+	f, err := os.OpenFile("log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+
+	c.log.SetOutput(f)
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
@@ -143,6 +159,8 @@ func (c *Engine) errorIsCritical(err error) bool {
 }
 
 func (c *Engine) logError(err error) {
+	out := fmt.Sprintf("ERROR ||| %v .", err)
+	c.log.Print(out)
 
 }
 
@@ -156,16 +174,21 @@ EVENT_LOOP:
 	for {
 		select {
 		case e := <-c.eventsChan:
-			if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
-				panic(e)
+			if c.backtestMode {
+				msg := fmt.Sprintf("%v ||| %v", e.getName(), e)
+				c.log.Print(msg)
+				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
+					panic(e)
+				}
+				t := e.getTime()
+				if t.Before(c.lastTime) {
+					out := fmt.Sprintf("Events in wrong order: %v, %v", c.prevEvent, e)
+					c.log.Print(out)
+				}
+				c.lastTime = t
+				c.prevEvent = e
 			}
-			/*t := (*e).(event).getTime()
-			if t.Before(c.lastTime) {
-				out := fmt.Sprintf("Events in wrong order: %v, %v", c.prevEvent, *e)
-				panic(out)
-			}
-			c.lastTime = t
-			c.prevEvent = *e*/
+
 			switch i := e.(type) {
 
 			case *CandleOpenEvent:
