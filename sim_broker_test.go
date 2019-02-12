@@ -10,6 +10,7 @@ import (
 
 func newTestSimulatedBroker() *SimulatedBroker {
 	b := SimulatedBroker{delay: 100}
+	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
 	eventChan := make(chan *event)
 	err := b.Connect(errChan, eventChan)
@@ -2953,9 +2954,10 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 	order6 := putNewOrder(19.08, LimitOnOpen, OrderBuy, 90, "6")
 	order7 := putNewOrder(20.08, LimitOnClose, OrderSell, 90, "7")
 
-	t.Log("Sim Broker: OnTick. Reaction on broker tick. Error expected")
+	t.Log("Sim Broker: OnTick. Reaction on broken tick. Error expected")
 	{
 		tick := marketdata.Tick{
+			Symbol:    "Test",
 			LastPrice: math.NaN(),
 			LastSize:  2000,
 			BidPrice:  math.NaN(),
@@ -2965,6 +2967,8 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			IsOpening: false,
 			Datetime:  time.Date(2010, 5, 5, 9, 30, 1, 0, time.UTC),
 		}
+
+		assert.False(t, b.tickIsValid(&tick))
 
 		prevLen := len(b.confirmedOrders)
 		b.OnTick(&tick)

@@ -194,7 +194,7 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 			Message: "Got in OnTick",
 			Caller:  "Sim Broker",
 		}
-
+		fmt.Println("Broken tick")
 		go b.newError(&err)
 		return
 
@@ -271,7 +271,7 @@ func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
 			b.updateCanceledOrders(order)
 			cancelE := OrderCancelEvent{
 				OrdId:     order.Id,
-				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
+				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 			}
 			go b.newEvent(&cancelE)
 		}
