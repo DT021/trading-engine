@@ -20,7 +20,7 @@ func newTestBasicStrategy() *DummyStrategy {
 	st.init()
 	eventsChan := make(chan *event)
 	errorsChan := make(chan error)
-	st.connect(eventsChan, errorsChan)
+	st.Connect(eventsChan, errorsChan)
 	return &st
 }
 
@@ -30,7 +30,7 @@ func genTickEvents(n int) []event {
 	for i, _ := range events {
 		tk := marketdata.Tick{Datetime: startTime}
 		startTime = startTime.Add(time.Second * time.Duration(1))
-		eTk := NewTickEvent{Time: tk.Datetime, Tick: &tk}
+		eTk := NewTickEvent{BaseEvent: be(tk.Datetime, tk.Symbol), Tick: &tk}
 		events[i] = &eTk
 	}
 
@@ -142,7 +142,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 
 	t.Log("Add history response event")
 	{
-		e := TickHistoryEvent{"TEST", histTicks[0].Datetime, histTicks}
+		e := TickHistoryEvent{BaseEvent: be(histTicks[0].Datetime, "TEST"), Ticks: histTicks}
 		st.onTickHistoryHandler(&e)
 		assert.Equal(t, 20, len(st.Ticks))
 		assert.True(t, isTicksSorted(st))
@@ -152,7 +152,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 	t.Log("Add old live event")
 	{
 		tm := time.Now().Add(time.Minute * time.Duration(-5))
-		oldEvent := NewTickEvent{Time: tm, Tick: &marketdata.Tick{Datetime: tm}}
+		oldEvent := NewTickEvent{BaseEvent: be(tm, "TEST"), Tick: &marketdata.Tick{Datetime: tm}}
 		st.onTickHandler(&oldEvent)
 		assert.Equal(t, 20, len(st.Ticks))
 		assert.True(t, isTicksSorted(st))
@@ -192,7 +192,7 @@ func genCandleCloseEvents(n int) []event {
 	for i, _ := range events {
 		tk := marketdata.Candle{Datetime: startTime}
 		startTime = startTime.Add(time.Second * time.Duration(1))
-		eTk := CandleCloseEvent{Time: tk.Datetime, Candle: &tk}
+		eTk := CandleCloseEvent{BaseEvent: be(tk.Datetime, "TEST"), Candle: &tk}
 		events[i] = &eTk
 	}
 
@@ -241,7 +241,7 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 	t.Log("Put some historical candles")
 	{
 		candles := genCandleArray(15)
-		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
+		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 15, len(st.Candles))
 		basicChecks()
@@ -250,14 +250,14 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 	t.Log("Add more historical candles")
 	{
 		candles := genCandleArray(40)
-		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
+		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 20, len(st.Candles))
 		basicChecks()
 
 		t.Log("Add duplicate candles")
 		{
-			e2 := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles[35:]}
+			e2 := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles[35:]}
 			st.onCandleHistoryHandler(&e2)
 			assert.Equal(t, 20, len(st.Candles))
 			basicChecks()
@@ -300,7 +300,7 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 	t.Log("Put some historical candles")
 	{
 		candles := genCandleArray(15)
-		e := CandleHistoryEvent{Time: candles[0].Datetime, Candles: candles}
+		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, candles[13].Open, st.LastCandleOpen())
 
@@ -399,7 +399,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test confirm event")
 	{
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{ord.Id, time.Now()})
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{BaseEvent: be(time.Now(), "TEST"), OrdId: ord.Id})
 		assert.Equal(t, 100.0, st.currentTrade.ConfirmedOrders[ord.Id].Price)
 		assert.Equal(t, ConfirmedOrder, ord.State)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -413,7 +413,11 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test replace event")
 	{
-		st.onOrderReplacedHandler(&OrderReplacedEvent{ord.Id, 222.0, time.Now()})
+		st.onOrderReplacedHandler(&OrderReplacedEvent{
+			BaseEvent: be(time.Now(), "TEST"),
+			OrdId:     ord.Id,
+			NewPrice:  222.0,
+		})
 		assert.Equal(t, 222.0, st.currentTrade.ConfirmedOrders[ord.Id].Price)
 		assert.Equal(t, ConfirmedOrder, ord.State)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -427,7 +431,10 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test cancel event")
 	{
-		st.onOrderCancelHandler(&OrderCancelEvent{ord.Id, time.Now()})
+		st.onOrderCancelHandler(&OrderCancelEvent{
+			OrdId:     ord.Id,
+			BaseEvent: be(time.Now(), "TEST"),
+		})
 
 		assert.Equal(t, 222.0, st.currentTrade.CanceledOrders[ord.Id].Price)
 		assert.Equal(t, CanceledOrder, ord.State)
@@ -457,7 +464,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		assert.False(t, ordToReject.Id == "")
 
-		st.onOrderRejectedHandler(&OrderRejectedEvent{ordToReject.Id, "Not shortable", time.Now()})
+		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId: ordToReject.Id, Reason: "Not shortable", BaseEvent: be(time.Now(), "TEST"),})
 
 		assertNoErrorsGeneratedByEvents(t, st)
 
@@ -472,7 +479,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test confirm event with wrong ID")
 	{
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{"NotExistingID", time.Now()})
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: "NotExistingID", BaseEvent: be(time.Now(), "TEST"),})
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -483,7 +490,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test cancel event with wrong ID")
 	{
-		st.onOrderCancelHandler(&OrderCancelEvent{"NotExistingID", time.Now()})
+		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: "NotExistingID", BaseEvent: be(time.Now(), "TEST")})
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -493,7 +500,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test replace event with wrong ID")
 	{
-		st.onOrderReplacedHandler(&OrderReplacedEvent{"NotExistingID", 10, time.Now()})
+		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: "NotExistingID", NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -503,7 +510,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	t.Log("Test reject event with wrong ID")
 	{
-		st.onOrderRejectedHandler(&OrderRejectedEvent{"NotExistingID", "SomeReason", time.Now()})
+		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId: "NotExistingID", Reason: "SomeReason", BaseEvent: be(time.Now(), "TEST"),})
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -528,28 +535,28 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		assert.False(t, ordTest.Id == "")
 
-		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
+		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId:ordTest.Id, NewPrice:10, BaseEvent: be(time.Now(), "TEST"), })
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
+		st.onOrderCancelHandler(&OrderCancelEvent{OrdId:ordTest.Id, BaseEvent: be(time.Now(), "TEST"), })
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.Equal(t, NewOrder, ordTest.State)
 
-		st.onOrderRejectedHandler(&OrderRejectedEvent{ordTest.Id, "SomeReason", time.Now()})
+		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId:ordTest.Id, Reason:"SomeReason", BaseEvent: be(time.Now(), "TEST"), })
 
 		assert.Equal(t, RejectedOrder, ordTest.State)
 
-		st.onOrderCancelHandler(&OrderCancelEvent{ordTest.Id, time.Now()})
+		st.onOrderCancelHandler(&OrderCancelEvent{OrdId:ordTest.Id, BaseEvent: be(time.Now(), "TEST"), })
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderReplacedHandler(&OrderReplacedEvent{ordTest.Id, 10, time.Now()})
+		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId:ordTest.Id, NewPrice:10, BaseEvent: be(time.Now(), "TEST"), })
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -601,12 +608,12 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, NewOrder, order.State)
 		assert.Equal(t, FlatTrade, st.currentTrade.Type)
 
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{order.Id, time.Now()})
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId:order.Id, BaseEvent: be(time.Now(), "TEST"), })
 
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 11, Qty: 100, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id,  Price: 11, Qty: 100, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -636,13 +643,13 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		assert.Len(t, st.currentTrade.NewOrders, 1)
 
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, Time: time.Now()})
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), "TEST"), })
 
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 13, Qty: 50, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 13, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, 150, st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -667,7 +674,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.True(t, st.currentTrade.IsOpen())
 
 		//Next fill part
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 13.5, Qty: 100, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 13.5, Qty: 100, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, 250, st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -690,7 +697,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.True(t, st.currentTrade.IsOpen())
 
 		//Complete fill
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Symbol: order.Symbol, Price: 11.25, Qty: 50, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id,  Price: 11.25, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, 300, st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -722,19 +729,19 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test"})
+		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test")})
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1"})
+		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1"})
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1", Price: math.NaN()})
+		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"),  OrdId: "Test|B|id1", Price: math.NaN()})
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderFillHandler(&OrderFillEvent{Symbol: "Test", OrdId: "Test|B|id1", Price: 10.0})
+		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1", Price: 10.0})
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
@@ -755,12 +762,12 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		assert.Equal(t, 300, st.Position())
 
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, Time: time.Now()})
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Qty: 50, Price: 15.2, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Qty: 50, Price: 15.2, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, PartialFilledOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -822,7 +829,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		t.Log("Try to add execution for canceled order. Expecting error.")
 		{
-			st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 10, Qty: 10, Time: time.Now()})
+			st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 10, Qty: 10, BaseEvent: be(time.Now(), order.Symbol)})
 			v := <-st.errorsChan
 			t.Logf("OK! Got exception: %v", v)
 		}
@@ -850,7 +857,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		prevOpenPrice := st.currentTrade.OpenPrice
 		prevClosedPnL := st.currentTrade.ClosedPnL
 
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.20, Qty: 150, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.20, Qty: 150, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, PartialFilledOrder, order.State)
 		assert.Equal(t, FlatTrade, st.currentTrade.Type)
@@ -869,7 +876,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, prevPos.MarketValue)
 
 		//Complete order fill. Flat position -> short position
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.22, Qty: 350, Time: time.Now()})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.22, Qty: 350, BaseEvent: be(time.Now(), order.Symbol)})
 		assert.Equal(t, ShortTrade, st.currentTrade.Type)
 		assert.Equal(t, -350, st.Position())
 		assert.Equal(t, 18.22, st.currentTrade.OpenPrice)

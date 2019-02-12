@@ -64,7 +64,9 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test normal new order")
 	{
 		order := newTestOrder(10.1, OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+		b.OnNewOrder(&NewOrderEvent{
+			LinkedOrder: order,
+			BaseEvent:   be(order.Time, order.Symbol)})
 
 		assert.Len(t, b.confirmedOrders, 1)
 		assert.Len(t, b.rejectedOrders, 0)
@@ -83,7 +85,10 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test new order with duplicate ID")
 	{
 		order := newTestOrder(10.1, OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+		b.OnNewOrder(&NewOrderEvent{
+			LinkedOrder: order,
+			BaseEvent:   be(order.Time, order.Symbol),
+		})
 
 		assert.Len(t, b.confirmedOrders, 1)
 		assert.Len(t, b.rejectedOrders, 1)
@@ -103,7 +108,10 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test new order with wrong params")
 	{
 		order := newTestOrder(math.NaN(), OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+		b.OnNewOrder(&NewOrderEvent{
+			LinkedOrder: order,
+			BaseEvent:   be(order.Time, order.Symbol),
+		})
 
 		assert.Len(t, b.confirmedOrders, 1)
 		assert.Len(t, b.rejectedOrders, 1)
@@ -184,7 +192,10 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 	t.Log("Sim broker: cancel order with not confirmed status")
 	{
 		order := newTestOrder(15, OrderSell, 100, "id2")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+		b.OnNewOrder(&NewOrderEvent{
+			LinkedOrder: order,
+			BaseEvent:   be(order.Time, order.Symbol),
+		})
 
 		v := <-b.eventChan
 		switch (*v).(type) {
@@ -284,7 +295,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	t.Log("Sim broker: replace order with not confirmed status")
 	{
 		order := newTestOrder(15, OrderSell, 100, "id2")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, Time: time.Now()})
+		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, BaseEvent: be(order.Time, order.Symbol),})
 
 		v := <-b.eventChan
 		switch (*v).(type) {

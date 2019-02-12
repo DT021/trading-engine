@@ -16,8 +16,8 @@ type IStrategy interface {
 	onCandleOpenHandler(e *CandleOpenEvent)
 	onCandleCloseHandler(e *CandleCloseEvent)
 	onTickHandler(e *NewTickEvent)
-	//onTickHistoryHandler(e *TickHistoryEvent) []*event
-	//onCandleHistoryHandler(e *CandleHistoryEvent) []*event
+	onTickHistoryHandler(e *TickHistoryEvent) []*event
+	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
 	onOrderFillHandler(e *OrderFillEvent)
 	onOrderCancelHandler(e *OrderCancelEvent)
@@ -27,11 +27,10 @@ type IStrategy interface {
 
 	//onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event
 
-	onTimerTickHandler(e *TimerTickEvent) []*event
-
+	onTimerTickHandler(e *TimerTickEvent)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
-	New() *IStrategy
+
 	Connect(eventChan chan *event, errorsChan chan error)
 }
 
@@ -48,6 +47,7 @@ type BasicStrategy struct {
 	lastCandleOpenTime time.Time
 	eventChan          chan *event
 	errorsChan         chan error
+	lastEventTime      time.Time
 }
 
 func (b *BasicStrategy) init() {
@@ -105,30 +105,36 @@ func (b *BasicStrategy) Position() int {
 
 func (b *BasicStrategy) NewOrder(order *Order) error {
 	if order.Symbol != b.Symbol {
-		return errors.New("Can't put new order. Strategy symbol and order symbol are different")
+		return errors.New("Can't put new order. Strategy symbol and order symbol are different. ")
 	}
 	if order.Id == "" {
 		order.Id = time.Now().Format(orderidLayout)
 	}
 
 	if !order.isValid() {
-		return errors.New("Order is not valid")
+		return errors.New("Order is not valid. ")
 	}
 	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
 	b.currentTrade.putNewOrder(order)
-	ordEvent := NewOrderEvent{LinkedOrder: order, Time: order.Time}
+	ordEvent := NewOrderEvent{
+		LinkedOrder: order,
+		BaseEvent:   be(order.Time, order.Symbol),
+	}
 	go b.newEvent(&ordEvent)
 	return nil
 }
 
 func (b *BasicStrategy) CancelOrder(ordID string) error {
 	if ordID == "" {
-		return errors.New("Order Id not specified")
+		return errors.New("Order Id not specified. ")
 	}
 	if !b.currentTrade.hasOrderWithID(ordID) {
-		return errors.New("Order ID not found in confirmed orders")
+		return errors.New("Order ID not found in confirmed orders. ")
 	}
-	cancelReq := OrderCancelRequestEvent{OrdId: ordID, Time: time.Now()}
+	cancelReq := OrderCancelRequestEvent{
+		OrdId:     ordID,
+		BaseEvent: be(b.lastEventTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
+	}
 
 	go b.newEvent(&cancelReq)
 
@@ -336,12 +342,11 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	}
 }
 
-func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) []*event {
+func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent)  {
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
 	if err != nil {
 		go b.error(err)
 	}
-	return nil
 }
 
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
@@ -360,8 +365,8 @@ func (b *BasicStrategy) onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []
 
 //Timer events
 
-func (b *BasicStrategy) onTimerTickHandler(e *TimerTickEvent) []*event {
-	return nil
+func (b *BasicStrategy) onTimerTickHandler(e *TimerTickEvent) {
+
 }
 
 //Private funcs to work with data

@@ -17,7 +17,6 @@ type IBroker interface {
 	OnCandleClose(e *CandleCloseEvent)
 	OnCandleOpen(e *CandleOpenEvent)
 	OnTick(tick *marketdata.Tick)
-
 }
 
 type SimulatedBroker struct {
@@ -63,7 +62,11 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 
 	if !e.LinkedOrder.isValid() {
 		r := "Sim Broker: can't confirm order. Order is not valid"
-		rejectEvent := OrderRejectedEvent{OrdId: e.LinkedOrder.Id, Reason: r, Time: time.Now()}
+		rejectEvent := OrderRejectedEvent{
+			OrdId:     e.LinkedOrder.Id,
+			Reason:    r,
+			BaseEvent: be(e.Time, e.Symbol),
+		}
 		go b.newEvent(&rejectEvent)
 		b.rejectedOrders[e.LinkedOrder.Id] = e.LinkedOrder
 		b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
@@ -72,7 +75,11 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 
 	if _, ok := b.allOrders[e.LinkedOrder.Id]; ok {
 		r := "Sim Broker: can't confirm order. Order with this ID already exists on broker side"
-		rejectEvent := OrderRejectedEvent{OrdId: e.LinkedOrder.Id, Reason: r, Time: time.Now()}
+		rejectEvent := OrderRejectedEvent{
+			OrdId:     e.LinkedOrder.Id,
+			Reason:    r,
+			BaseEvent: be(e.Time, e.Symbol),
+		}
 		go b.newEvent(&rejectEvent)
 		b.rejectedOrders[e.LinkedOrder.Id] = e.LinkedOrder
 
@@ -80,7 +87,10 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 	}
 
 	b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
-	confEvent := OrderConfirmationEvent{e.LinkedOrder.Symbol, e.LinkedOrder.Id, time.Now()}
+	confEvent := OrderConfirmationEvent{
+		OrdId:     e.LinkedOrder.Id,
+		BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
+	}
 
 	go b.newEvent(&confEvent)
 
@@ -95,7 +105,10 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 	}
 	b.canceledOrders[e.OrdId] = b.confirmedOrders[e.OrdId]
 	delete(b.confirmedOrders, e.OrdId)
-	orderCancelE := OrderCancelEvent{OrdId: e.OrdId, Time: e.Time.Add(time.Duration(b.delay) * time.Millisecond)}
+	orderCancelE := OrderCancelEvent{
+		OrdId:     e.OrdId,
+		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
+	}
 
 	go b.newEvent(&orderCancelE)
 
@@ -120,9 +133,9 @@ func (b *SimulatedBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
 	}
 
 	replacedEvent := OrderReplacedEvent{
-		OrdId:    e.OrdId,
-		NewPrice: e.NewPrice,
-		Time:     e.Time.Add(time.Duration(b.delay) * time.Millisecond),
+		OrdId:     e.OrdId,
+		NewPrice:  e.NewPrice,
+		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
 
 	go b.newEvent(&replacedEvent)
@@ -257,8 +270,8 @@ func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
 		if b.marketOpenUntilTime.Before(tick.Datetime) {
 			b.updateCanceledOrders(order)
 			cancelE := OrderCancelEvent{
-				OrdId: order.Id,
-				Time:  tick.Datetime,
+				OrdId:     order.Id,
+				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
 			go b.newEvent(&cancelE)
 		}
@@ -280,8 +293,8 @@ func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
 		if b.marketCloseUntilTime.Before(tick.Datetime) {
 			b.updateCanceledOrders(order)
 			cancelE := OrderCancelEvent{
-				OrdId: order.Id,
-				Time:  tick.Datetime,
+				OrdId:     order.Id,
+				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
 			go b.newEvent(&cancelE)
 		}
@@ -297,8 +310,8 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 	case OrderSell:
 		if tick.LastPrice < order.Price {
 			cancelE := OrderCancelEvent{
-				OrdId: order.Id,
-				Time:  tick.Datetime,
+				OrdId:     order.Id,
+				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
 			b.updateCanceledOrders(order)
 			go b.newEvent(&cancelE)
@@ -308,8 +321,8 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 	case OrderBuy:
 		if tick.LastPrice > order.Price {
 			cancelE := OrderCancelEvent{
-				OrdId: order.Id,
-				Time:  tick.Datetime,
+				OrdId:     order.Id,
+				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
 			b.updateCanceledOrders(order)
 			go b.newEvent(&cancelE)
@@ -329,8 +342,8 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 
 	if tick.LastPrice == order.Price && b.strictLimitOrders {
 		cancelE := OrderCancelEvent{
-			OrdId: order.Id,
-			Time:  tick.Datetime,
+			OrdId:     order.Id,
+			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 		}
 		b.updateCanceledOrders(order)
 		go b.newEvent(&cancelE)
@@ -343,11 +356,10 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 	}
 
 	fillE := OrderFillEvent{
-		OrdId:  order.Id,
-		Symbol: order.Symbol,
-		Price:  tick.LastPrice,
-		Qty:    execQty,
-		Time:   tick.Datetime,
+		OrdId:     order.Id,
+		Price:     tick.LastPrice,
+		Qty:       execQty,
+		BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 	}
 
 	b.updateFilledOrders(order, execQty)
@@ -356,8 +368,8 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 	if execQty < order.Qty {
 		b.updateCanceledOrders(order)
 		cancelE := OrderCancelEvent{
-			OrdId: order.Id,
-			Time:  tick.Datetime,
+			OrdId:     order.Id,
+			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 		}
 		go b.newEvent(&cancelE)
 	}
@@ -380,11 +392,10 @@ func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
 	}
 
 	fillE := OrderFillEvent{
-		OrdId:  order.Id,
-		Symbol: order.Symbol,
-		Price:  tick.LastPrice,
-		Qty:    order.Qty,
-		Time:   tick.Datetime,
+		OrdId:     order.Id,
+		Price:     tick.LastPrice,
+		Qty:       order.Qty,
+		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
 	b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
@@ -409,11 +420,10 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 	}
 
 	fillE := OrderFillEvent{
-		OrdId:  order.Id,
-		Symbol: order.Symbol,
-		Price:  tick.LastPrice,
-		Qty:    order.Qty,
-		Time:   tick.Datetime,
+		OrdId:     order.Id,
+		Price:     tick.LastPrice,
+		Qty:       order.Qty,
+		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
 	b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
@@ -450,11 +460,10 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 			}
 
 			fillE := OrderFillEvent{
-				OrdId:  order.Id,
-				Symbol: order.Symbol,
-				Price:  order.Price,
-				Qty:    qty,
-				Time:   tick.Datetime,
+				OrdId:     order.Id,
+				Price:     order.Price,
+				Qty:       qty,
+				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
 			b.updateFilledOrders(order, qty)
@@ -469,11 +478,10 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				}
 
 				fillE := OrderFillEvent{
-					OrdId:  order.Id,
-					Symbol: order.Symbol,
-					Price:  order.Price,
-					Qty:    qty,
-					Time:   tick.Datetime,
+					OrdId:     order.Id,
+					Price:     order.Price,
+					Qty:       qty,
+					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 
 				b.updateFilledOrders(order, qty)
@@ -492,11 +500,10 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 			}
 
 			fillE := OrderFillEvent{
-				OrdId:  order.Id,
-				Symbol: order.Symbol,
-				Price:  order.Price,
-				Qty:    qty,
-				Time:   tick.Datetime,
+				OrdId:     order.Id,
+				Price:     order.Price,
+				Qty:       qty,
+				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
 			b.updateFilledOrders(order, qty)
@@ -512,11 +519,10 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				}
 
 				fillE := OrderFillEvent{
-					OrdId:  order.Id,
-					Symbol: order.Symbol,
-					Price:  order.Price,
-					Qty:    qty,
-					Time:   tick.Datetime,
+					OrdId:     order.Id,
+					Price:     order.Price,
+					Qty:       qty,
+					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 				b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
@@ -560,11 +566,10 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			qty = lvsQty
 		}
 		fillE := OrderFillEvent{
-			OrdId:  order.Id,
-			Symbol: order.Symbol,
-			Price:  price,
-			Qty:    qty,
-			Time:   tick.Datetime,
+			OrdId:     order.Id,
+			Price:     price,
+			Qty:       qty,
+			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
 		b.updateFilledOrders(order, qty)
@@ -586,11 +591,10 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			qty = lvsQty
 		}
 		fillE := OrderFillEvent{
-			OrdId:  order.Id,
-			Symbol: order.Symbol,
-			Price:  price,
-			Qty:    qty,
-			Time:   tick.Datetime,
+			OrdId:     order.Id,
+			Price:     price,
+			Qty:       qty,
+			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
 		b.updateFilledOrders(order, qty)
@@ -653,11 +657,10 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			price = tick.BidPrice
 		}
 		fillE := OrderFillEvent{
-			OrdId:  order.Id,
-			Symbol: order.Symbol,
-			Price:  price,
-			Qty:    qty,
-			Time:   tick.Datetime,
+			OrdId:     order.Id,
+			Price:     price,
+			Qty:       qty,
+			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 		b.updateFilledOrders(order, qty)
 
@@ -670,11 +673,10 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 		}
 
 		fillE := OrderFillEvent{
-			OrdId:  order.Id,
-			Symbol: order.Symbol,
-			Price:  tick.LastPrice,
-			Qty:    order.Qty,
-			Time:   tick.Datetime,
+			OrdId:     order.Id,
+			Price:     tick.LastPrice,
+			Qty:       order.Qty,
+			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
 		b.updateFilledOrders(order, order.Qty)

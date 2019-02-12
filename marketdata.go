@@ -41,7 +41,7 @@ type BTM struct {
 	fraction         int64
 }
 
-func (m *BTM) SetSymbols(symbols []string){
+func (m *BTM) SetSymbols(symbols []string) {
 	m.Symbols = symbols
 }
 
@@ -204,8 +204,8 @@ func (m *BTM) genTickEvents() {
 
 		delta := tick.Datetime.Sub(prevTick.Datetime)
 		e := NewTickEvent{
-			Tick: tick,
-			Time: tick.Datetime,
+			Tick:      tick,
+			BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
 		}
 
 		if delta.Seconds() < 2 {
