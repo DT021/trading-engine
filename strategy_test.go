@@ -18,9 +18,9 @@ func newTestBasicStrategy() *DummyStrategy {
 	bs := BasicStrategy{Symbol: "Test", NPeriods: 20}
 	st := DummyStrategy{bs}
 	st.init()
-	eventsChan := make(chan *event)
+	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	st.Connect(eventsChan, errorsChan)
+	st.Connect(errorsChan, eventsChan)
 	return &st
 }
 
@@ -535,28 +535,28 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		assert.False(t, ordTest.Id == "")
 
-		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId:ordTest.Id, NewPrice:10, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: ordTest.Id, NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
 		v := <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderCancelHandler(&OrderCancelEvent{OrdId:ordTest.Id, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: ordTest.Id, BaseEvent: be(time.Now(), "TEST"),})
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
 		assert.Equal(t, NewOrder, ordTest.State)
 
-		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId:ordTest.Id, Reason:"SomeReason", BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId: ordTest.Id, Reason: "SomeReason", BaseEvent: be(time.Now(), "TEST"),})
 
 		assert.Equal(t, RejectedOrder, ordTest.State)
 
-		st.onOrderCancelHandler(&OrderCancelEvent{OrdId:ordTest.Id, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: ordTest.Id, BaseEvent: be(time.Now(), "TEST"),})
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId:ordTest.Id, NewPrice:10, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: ordTest.Id, NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
@@ -572,7 +572,7 @@ func assertStrategyHasNewOrderEvent(t *testing.T, st *DummyStrategy) {
 	if !ok {
 		t.Fatal("FATAL! Expected new order event.Didn't found any")
 	}
-	switch (*v).(type) {
+	switch v.(type) {
 	case *NewOrderEvent:
 		t.Log("OK! Has new order event")
 	default:
@@ -608,12 +608,12 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, NewOrder, order.State)
 		assert.Equal(t, FlatTrade, st.currentTrade.Type)
 
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId:order.Id, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), "TEST"),})
 
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id,  Price: 11, Qty: 100, BaseEvent: be(time.Now(), order.Symbol)})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 11, Qty: 100, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -643,7 +643,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		assert.Len(t, st.currentTrade.NewOrders, 1)
 
-		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), "TEST"), })
+		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), "TEST"),})
 
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, st.currentTrade.NewOrders, 0)
@@ -697,7 +697,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.True(t, st.currentTrade.IsOpen())
 
 		//Complete fill
-		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id,  Price: 11.25, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
+		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 11.25, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
 
 		assert.Equal(t, 300, st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
@@ -737,7 +737,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
-		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"),  OrdId: "Test|B|id1", Price: math.NaN()})
+		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1", Price: math.NaN()})
 		v = <-st.errorsChan
 		t.Logf("OK! Got exception: %v", v)
 
@@ -942,7 +942,7 @@ func assertStrategyHasCancelRequest(t *testing.T, st *DummyStrategy) {
 	if !ok {
 		t.Fatal("FATAL! Expected cancel order event.Didn't found any")
 	}
-	switch (*v).(type) {
+	switch v.(type) {
 	case *OrderCancelRequestEvent:
 		t.Log("OK! Has canel order request event")
 	default:

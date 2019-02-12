@@ -9,7 +9,7 @@ import (
 )
 
 type IBroker interface {
-	Connect(errChan chan error, eventChan chan *event) error
+	Connect(errChan chan error, eventChan chan event) error
 	OnNewOrder(e *NewOrderEvent)
 	OnCancelRequest(e *OrderCancelRequestEvent)
 	OnReplaceRequest(e *OrderReplaceRequestEvent)
@@ -21,7 +21,7 @@ type IBroker interface {
 
 type SimulatedBroker struct {
 	errChan                chan error
-	eventChan              chan *event
+	eventChan              chan event
 	filledOrders           map[string]*Order
 	canceledOrders         map[string]*Order
 	confirmedOrders        map[string]*Order
@@ -39,7 +39,7 @@ func (b *SimulatedBroker) IsSimulated() bool {
 	return true
 }
 
-func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan *event) error {
+func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) error {
 	if errChan == nil {
 		return errors.New("Can't connect simulated broker. Error chan is nil. ")
 	}
@@ -740,7 +740,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 		panic("Simulated broker event chan is nil")
 	}
 	time.Sleep(time.Duration(b.delay) * time.Millisecond)
-	b.eventChan <- &e
+	b.eventChan <- e
 
 }
 

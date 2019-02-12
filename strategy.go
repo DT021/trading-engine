@@ -31,7 +31,7 @@ type IStrategy interface {
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
 
-	Connect(eventChan chan *event, errorsChan chan error)
+	Connect(errorsChan chan error, eventChan chan event)
 }
 
 type BasicStrategy struct {
@@ -45,7 +45,7 @@ type BasicStrategy struct {
 	Candles            marketdata.CandleArray
 	lastCandleOpen     float64
 	lastCandleOpenTime time.Time
-	eventChan          chan *event
+	eventChan          chan event
 	errorsChan         chan error
 	lastEventTime      time.Time
 }
@@ -59,7 +59,7 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) Connect(eventChan chan *event, errorsChan chan error) {
+func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
 	if eventChan == nil {
 		panic("Can't connect stategy. Event channel is nil")
 	}
@@ -379,7 +379,7 @@ func (b *BasicStrategy) error(err error) {
 
 func (b *BasicStrategy) newEvent(e event) {
 	if b.eventChan != nil {
-		b.eventChan <- &e
+		b.eventChan <- e
 
 	}
 }

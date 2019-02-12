@@ -222,9 +222,10 @@ func TestBTM_Run(t *testing.T) {
 	totalE := 0
 	var prevTime time.Time
 	for e := range b.eventChan {
+		i := e.(event)
 		totalE += 1
-		assert.False(t, e.getTime().Before(prevTime))
-		prevTime = e.getTime()
+		assert.False(t, i.getTime().Before(prevTime))
+		prevTime = i.getTime()
 		if totalE == 4348 {
 			//assert.Equal(t, -1, (e).(*NewTickEvent).Tick.LastPrice)
 			t.Log("OK! Found last event")
@@ -232,6 +233,8 @@ func TestBTM_Run(t *testing.T) {
 		}
 	}
 
-	assertNoEventsGeneratedByBTM(t, b)
+	e := <-b.eventChan
+	assert.NotNil(t, e)
+	assert.IsType(t, &EndOfDataEvent{}, e)
 
 }

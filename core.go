@@ -1,22 +1,28 @@
 package engine
 
+import (
+	"time"
+)
+
 type Engine struct {
 	Symbols             []string
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
-	StrategyMap         map[string]*IStrategy
-	eventsChan          chan *event
+	StrategyMap         map[string]IStrategy
+	eventsChan          chan event
 	errChan             chan error
+	lastTime            time.Time
+	prevEvent           event
 }
 
-func NewEngine(sp map[string]*IStrategy, broker IBroker, marketdata IMarketData) *Engine {
-	eventChan := make(chan *event)
+func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData) *Engine {
+	eventChan := make(chan event)
 	errChan := make(chan error)
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		(*sp[k]).Connect(eventChan, errChan)
+		sp[k].Connect(errChan, eventChan)
 	}
 
 	broker.Connect(errChan, eventChan)
@@ -34,7 +40,7 @@ func NewEngine(sp map[string]*IStrategy, broker IBroker, marketdata IMarketData)
 	return &eng
 }
 
-func (c *Engine) getSymbolStrategy(symbol string) *IStrategy {
+func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
 	st, ok := c.StrategyMap[symbol]
 
 	if !ok {
@@ -51,7 +57,7 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 		c.BrokerConnector.OnCandleOpen(e)
 	}
 
-	(*st).onCandleOpenHandler(e)
+	st.onCandleOpenHandler(e)
 
 }
 
@@ -62,7 +68,7 @@ func (c *Engine) eCandleClose(e *CandleCloseEvent) {
 		c.BrokerConnector.OnCandleClose(e)
 	}
 
-	(*st).onCandleCloseHandler(e)
+	st.onCandleCloseHandler(e)
 
 }
 
@@ -80,13 +86,13 @@ func (c *Engine) eTick(e *NewTickEvent) {
 		c.BrokerConnector.OnTick(e.Tick)
 	}
 
-	(*st).onTickHandler(e)
+	st.onTickHandler(e)
 
 }
 
 func (c *Engine) eFill(e *OrderFillEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	(*st).onOrderFillHandler(e)
+	st.onOrderFillHandler(e)
 
 }
 
@@ -98,7 +104,7 @@ func (c *Engine) eCancelRequest(e *OrderCancelRequestEvent) {
 
 func (c *Engine) eOrderCanceled(e *OrderCancelEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	(*st).onOrderCancelHandler(e)
+	st.onOrderCancelHandler(e)
 }
 
 func (c *Engine) eReplaceRequest(e *OrderReplaceRequestEvent) {
@@ -109,17 +115,17 @@ func (c *Engine) eReplaceRequest(e *OrderReplaceRequestEvent) {
 
 func (c *Engine) eOrderReplaced(e *OrderReplacedEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	(*st).onOrderReplacedHandler(e)
+	st.onOrderReplacedHandler(e)
 }
 
 func (c *Engine) eOrderConfirmed(e *OrderConfirmationEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	(*st).onOrderConfirmHandler(e)
+	st.onOrderConfirmHandler(e)
 }
 
 func (c *Engine) eOrderRejected(e *OrderRejectedEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	(*st).onOrderRejectedHandler(e)
+	st.onOrderRejectedHandler(e)
 }
 
 func (c *Engine) eEndOfData(e *EndOfDataEvent) {
@@ -144,7 +150,15 @@ EVENT_LOOP:
 	for {
 		select {
 		case e := <-c.eventsChan:
-			switch i := (*e).(type) {
+			/*t := (*e).(event).getTime()
+			if t.Before(c.lastTime) {
+				out := fmt.Sprintf("Events in wrong order: %v, %v", c.prevEvent, *e)
+				panic(out)
+			}
+			c.lastTime = t
+			c.prevEvent = *e*/
+			switch i := (e).(type) {
+
 			case *CandleOpenEvent:
 				c.eCandleOpen(i)
 			case *CandleCloseEvent:

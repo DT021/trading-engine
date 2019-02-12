@@ -14,11 +14,8 @@ import (
 )
 
 type IMarketData interface {
-	Done() bool
-	Next() *event
-	Pop() *event
 	Run()
-	Connect(errChan chan error, eventChan chan *event)
+	Connect(errChan chan error, eventChan chan event)
 	SetSymbols(symbols []string)
 }
 
@@ -43,6 +40,19 @@ type BTM struct {
 
 func (m *BTM) SetSymbols(symbols []string) {
 	m.Symbols = symbols
+}
+
+func (m *BTM) Connect(errChan chan error, eventChan chan event) {
+	if errChan == nil {
+		panic("Error chan is nil")
+	}
+
+	if eventChan == nil {
+		panic("Event chan is nil")
+	}
+
+	m.eventChan = eventChan
+	m.errChan = errChan
 }
 
 func (m *BTM) getFilename() (string, error) {
@@ -220,6 +230,8 @@ func (m *BTM) genTickEvents() {
 
 	}
 
+	m.newEvent(&EndOfDataEvent{})
+
 }
 
 func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
@@ -285,17 +297,4 @@ func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
 
 	return &tick, nil
 
-}
-
-func (m *BTM) Connect(errChan chan error, eventChan chan event) {
-	if errChan == nil {
-		panic("Error chan is nil")
-	}
-
-	if eventChan == nil {
-		panic("Event chan is nil")
-	}
-
-	m.eventChan = eventChan
-	m.errChan = errChan
 }
