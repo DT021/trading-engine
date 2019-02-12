@@ -17,6 +17,7 @@ type IMarketData interface {
 	Run()
 	Connect(errChan chan error, eventChan chan event)
 	SetSymbols(symbols []string)
+	GetFirstTime() time.Time
 }
 
 type ITimerEventProducer interface {
@@ -55,6 +56,9 @@ func (m *BTM) Connect(errChan chan error, eventChan chan event) {
 	m.errChan = errChan
 }
 
+func (m *BTM) GetFirstTime() time.Time {
+	return m.FromDate
+}
 func (m *BTM) getFilename() (string, error) {
 	if len(m.Symbols) == 0 {
 		return "", errors.New("Symbols len is zero")
@@ -230,7 +234,7 @@ func (m *BTM) genTickEvents() {
 
 	}
 
-	m.newEvent(&EndOfDataEvent{})
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(prevTick.Datetime.Add(time.Second), "-")})
 
 }
 

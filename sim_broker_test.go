@@ -13,10 +13,8 @@ func newTestSimulatedBroker() *SimulatedBroker {
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
 	eventChan := make(chan event)
-	err := b.Connect(errChan, eventChan)
-	if err != nil {
-		panic(err)
-	}
+	b.Connect(errChan, eventChan)
+
 	return &b
 }
 
@@ -27,10 +25,7 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 		b := SimulatedBroker{}
 		errChan := make(chan error)
 		eventChan := make(chan event)
-		err := b.Connect(errChan, eventChan)
-
-		assert.Nil(t, err)
-
+		b.Connect(errChan, eventChan)
 		order := newTestOrder(10, OrderSell, 10, "15")
 		b.filledOrders[order.Id] = order
 		b.canceledOrders[order.Id] = order
@@ -173,7 +168,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 	t.Log("Sim Broker: cancel already canceled order")
 	{
 		ordId := ""
-		for k, _ := range b.canceledOrders {
+		for k := range b.canceledOrders {
 			ordId = k
 		}
 
@@ -339,7 +334,7 @@ func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
 	}
 }
 
-func getTestSimBrokerGeneratedEvent(t *testing.T, b *SimulatedBroker) event {
+func getTestSimBrokerGeneratedEvent(b *SimulatedBroker) event {
 
 	select {
 	case v := <-b.eventChan:
@@ -349,7 +344,7 @@ func getTestSimBrokerGeneratedEvent(t *testing.T, b *SimulatedBroker) event {
 	return nil
 }
 
-func getTestSimBrokerGeneratedErrors(t *testing.T, b *SimulatedBroker) error {
+func getTestSimBrokerGeneratedErrors(b *SimulatedBroker) error {
 
 	select {
 	case v := <-b.errChan:
@@ -391,7 +386,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -465,7 +460,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assertNoErrorsGeneratedByBroker(t, b)
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -505,7 +500,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Len(t, b.confirmedOrders, 1)
 				assert.Equal(t, ConfirmedOrder, order.State)
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -545,7 +540,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Len(t, b.confirmedOrders, 2)
 				assert.Equal(t, ConfirmedOrder, order.State)
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -579,7 +574,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Len(t, b.confirmedOrders, 1) //Order goes to filled
 
-				v = getTestSimBrokerGeneratedEvent(t, b)
+				v = getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -619,7 +614,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Len(t, b.confirmedOrders, 2)
 				assert.Equal(t, ConfirmedOrder, order.State)
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -653,7 +648,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Len(t, b.confirmedOrders, 1) //Order goes to filled
 
-				v = getTestSimBrokerGeneratedEvent(t, b)
+				v = getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -797,7 +792,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, b.confirmedOrders, 1)
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b)
+		err := getTestSimBrokerGeneratedErrors(b)
 
 		assert.NotNil(t, err)
 		assert.IsType(t, &ErrUnexpectedOrderType{}, err)
@@ -828,7 +823,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Len(t, b.filledOrders, 1)
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b)
+		err := getTestSimBrokerGeneratedErrors(b)
 
 		assert.NotNil(t, err)
 		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
@@ -859,7 +854,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, b.confirmedOrders, 1)
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b)
+		err := getTestSimBrokerGeneratedErrors(b)
 		assert.IsType(t, &ErrInvalidOrder{}, err)
 
 		assert.NotNil(t, err)
@@ -934,7 +929,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		assert.Equal(t, NewOrder, order.State)
 
 		assertNoEventsGeneratedByBroker(t, b)
-		err := getTestSimBrokerGeneratedErrors(t, b)
+		err := getTestSimBrokerGeneratedErrors(b)
 		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
 		assert.NotNil(t, err)
@@ -967,7 +962,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1026,7 +1021,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					assert.Len(t, b.confirmedOrders, 1)
 					assertNoErrorsGeneratedByBroker(t, b)
 
-					v := getTestSimBrokerGeneratedEvent(t, b)
+					v := getTestSimBrokerGeneratedEvent(b)
 					assert.NotNil(t, v)
 					order.ExecQty = 100
 
@@ -1060,7 +1055,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					assert.Len(t, b.confirmedOrders, 0)
 					assertNoErrorsGeneratedByBroker(t, b)
 
-					v := getTestSimBrokerGeneratedEvent(t, b)
+					v := getTestSimBrokerGeneratedEvent(b)
 					assert.NotNil(t, v)
 					order.ExecQty = 200
 
@@ -1126,7 +1121,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assert.Len(t, b.confirmedOrders, 0)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1170,7 +1165,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1208,7 +1203,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assert.Len(t, b.confirmedOrders, 0)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1254,7 +1249,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1314,7 +1309,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					assert.Len(t, b.confirmedOrders, 1)
 					assertNoErrorsGeneratedByBroker(t, b)
 
-					v := getTestSimBrokerGeneratedEvent(t, b)
+					v := getTestSimBrokerGeneratedEvent(b)
 					assert.NotNil(t, v)
 					order.ExecQty = 100
 
@@ -1348,7 +1343,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					assert.Len(t, b.confirmedOrders, 0)
 					assertNoErrorsGeneratedByBroker(t, b)
 
-					v := getTestSimBrokerGeneratedEvent(t, b)
+					v := getTestSimBrokerGeneratedEvent(b)
 					assert.NotNil(t, v)
 					order.ExecQty = 200
 
@@ -1414,7 +1409,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assert.Len(t, b.confirmedOrders, 0)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1458,7 +1453,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1496,7 +1491,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Equal(t, ConfirmedOrder, order.State)
 				assert.Len(t, b.confirmedOrders, 0)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1535,7 +1530,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 1)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1564,7 +1559,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v = getTestSimBrokerGeneratedEvent(t, b)
+				v = getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1613,7 +1608,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1651,7 +1646,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1742,7 +1737,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1780,7 +1775,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 1)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1812,7 +1807,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v = getTestSimBrokerGeneratedEvent(t, b)
+				v = getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1853,7 +1848,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1891,7 +1886,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1982,7 +1977,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2020,7 +2015,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 1)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2052,7 +2047,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v = getTestSimBrokerGeneratedEvent(t, b)
+				v = getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2100,7 +2095,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2170,7 +2165,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2242,7 +2237,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2312,7 +2307,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2385,7 +2380,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2424,7 +2419,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2465,7 +2460,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2503,7 +2498,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2545,7 +2540,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2561,7 +2556,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				t.Errorf("Error! Expected OrderFillEvent. Got: %v, %v", v, v.(event).getName())
 			}
 
-			v = getTestSimBrokerGeneratedEvent(t, b)
+			v = getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2604,7 +2599,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2643,7 +2638,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2681,7 +2676,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2717,7 +2712,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				assert.Len(t, b.confirmedOrders, 0)
 				assertNoErrorsGeneratedByBroker(t, b)
 
-				v := getTestSimBrokerGeneratedEvent(t, b)
+				v := getTestSimBrokerGeneratedEvent(b)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -2758,7 +2753,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			assert.Len(t, b.confirmedOrders, 0)
 			assertNoErrorsGeneratedByBroker(t, b)
 
-			v := getTestSimBrokerGeneratedEvent(t, b)
+			v := getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2773,7 +2768,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 			}
 
-			v = getTestSimBrokerGeneratedEvent(t, b)
+			v = getTestSimBrokerGeneratedEvent(b)
 			assert.NotNil(t, v)
 
 			switch v.(type) {
@@ -2818,7 +2813,7 @@ func TestSimulatedBroker_checkOnTickLOC(t *testing.T) {
 		assert.Len(t, b.confirmedOrders, 0)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -2887,7 +2882,7 @@ func TestSimulatedBroker_checkOnTickLOO(t *testing.T) {
 		assert.Len(t, b.confirmedOrders, 0)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -2919,7 +2914,7 @@ func TestSimulatedBroker_checkOnTickLOO(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 9, 31, 0, 0, time.UTC),
 		}
 
-		b.checkOnTickLOC(order, &tick)
+		b.checkOnTickLOO(order, &tick)
 		assert.Equal(t, ConfirmedOrder, order.State)
 		assert.Len(t, b.confirmedOrders, 1)
 		assertNoErrorsGeneratedByBroker(t, b)
@@ -2975,7 +2970,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.confirmedOrders, prevLen)
 		assertNoEventsGeneratedByBroker(t, b)
 
-		err := getTestSimBrokerGeneratedErrors(t, b)
+		err := getTestSimBrokerGeneratedErrors(b)
 		assert.NotNil(t, err)
 		assert.IsType(t, &ErrBrokenTick{}, err)
 	}
@@ -3000,7 +2995,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.filledOrders, prevLenFills+1)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -3056,7 +3051,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.filledOrders, prevLenFills+1)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -3092,7 +3087,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.filledOrders, prevLenFills+2)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 		switch v.(type) {
 		case *OrderFillEvent:
@@ -3113,7 +3108,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 		}
 
-		v = getTestSimBrokerGeneratedEvent(t, b)
+		v = getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 		switch v.(type) {
 		case *OrderFillEvent:
@@ -3155,7 +3150,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.filledOrders, prevLenFills+1)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -3192,7 +3187,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, b.canceledOrders, 1)
 		assertNoErrorsGeneratedByBroker(t, b)
 
-		v := getTestSimBrokerGeneratedEvent(t, b)
+		v := getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {
@@ -3210,7 +3205,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 		}
 
-		v = getTestSimBrokerGeneratedEvent(t, b)
+		v = getTestSimBrokerGeneratedEvent(b)
 		assert.NotNil(t, v)
 
 		switch v.(type) {

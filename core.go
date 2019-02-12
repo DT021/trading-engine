@@ -4,6 +4,10 @@ import (
 	"time"
 )
 
+type EnginePart interface {
+	Connect(errChan chan error, eventChan chan event)
+}
+
 type Engine struct {
 	Symbols             []string
 	BrokerConnector     IBroker
@@ -13,6 +17,8 @@ type Engine struct {
 	errChan             chan error
 	lastTime            time.Time
 	prevEvent           event
+	log                 logger
+
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData) *Engine {
@@ -150,6 +156,9 @@ EVENT_LOOP:
 	for {
 		select {
 		case e := <-c.eventsChan:
+			if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
+				panic(e)
+			}
 			/*t := (*e).(event).getTime()
 			if t.Before(c.lastTime) {
 				out := fmt.Sprintf("Events in wrong order: %v, %v", c.prevEvent, *e)
@@ -157,7 +166,7 @@ EVENT_LOOP:
 			}
 			c.lastTime = t
 			c.prevEvent = *e*/
-			switch i := (e).(type) {
+			switch i := e.(type) {
 
 			case *CandleOpenEvent:
 				c.eCandleOpen(i)
