@@ -4,6 +4,7 @@ import (
 	"alex/marketdata"
 	"github.com/stretchr/testify/assert"
 	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,7 +15,8 @@ func newTestSimulatedBroker() *SimulatedBroker {
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
 	eventChan := make(chan event)
-	b.Connect(errChan, eventChan)
+	mut := &sync.Mutex{}
+	b.Connect(errChan, eventChan, mut)
 
 	return &b
 }
@@ -26,7 +28,8 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 		b := SimulatedBroker{}
 		errChan := make(chan error)
 		eventChan := make(chan event)
-		b.Connect(errChan, eventChan)
+		mut := &sync.Mutex{}
+		b.Connect(errChan, eventChan, mut)
 		order := newTestOrder(10, OrderSell, 10, "15")
 		b.filledOrders[order.Id] = order
 		b.canceledOrders[order.Id] = order
@@ -3162,6 +3165,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 		}
 
+		time.Sleep(2*time.Millisecond) //todo проверить. Это дб синхронно как то
 		assert.Len(t, b.confirmedOrders, prevLen-2)
 		assert.Len(t, b.filledOrders, prevLenFills+2)
 
@@ -3263,6 +3267,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 		}
 
+		time.Sleep(2*time.Millisecond) //todo проверить. Это дб синхронно как то
 		assert.Len(t, b.confirmedOrders, prevLen-2)
 		assert.Len(t, b.filledOrders, prevLenFills+1)
 		assert.Len(t, b.canceledOrders, 1)

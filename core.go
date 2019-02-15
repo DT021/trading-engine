@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -27,14 +28,15 @@ type Engine struct {
 func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, backtestMode bool) *Engine {
 	eventChan := make(chan event)
 	errChan := make(chan error)
+	mutex := &sync.Mutex{}
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		sp[k].Connect(errChan, eventChan)
+		sp[k].Connect(errChan, eventChan, mutex)
 	}
 
-	broker.Connect(errChan, eventChan)
+	broker.Connect(errChan, eventChan, mutex)
 	marketdata.Connect(errChan, eventChan)
 	marketdata.SetSymbols(symbols)
 	eng := Engine{

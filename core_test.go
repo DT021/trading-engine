@@ -3,6 +3,7 @@ package engine
 import (
 	"alex/marketdata"
 	"math/rand"
+	"sync"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	bs.init()
 	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	bs.Connect(errorsChan, eventsChan)
+	bs.Connect(errorsChan, eventsChan, &sync.Mutex{})
 	return &bs
 
 }

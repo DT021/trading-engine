@@ -1,20 +1,20 @@
 package engine
 
 import (
-	"testing"
 	"alex/marketdata"
-	"time"
-	"github.com/stretchr/testify/assert"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"math"
+	"sync"
+	"testing"
+	"time"
 )
 
 //We use some dummy strategy for tests
 type DummyStrategy struct {
-
 }
 
-func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick)  {
+func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
 
 }
 
@@ -28,7 +28,8 @@ func newTestBasicStrategy() *BasicStrategy {
 	bs.init()
 	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	bs.Connect(errorsChan, eventsChan)
+	mutex := &sync.Mutex{}
+	bs.Connect(errorsChan, eventsChan, mutex)
 	return &bs
 }
 

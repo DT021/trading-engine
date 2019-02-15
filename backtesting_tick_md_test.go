@@ -227,7 +227,6 @@ func TestBTM_Run(t *testing.T) {
 		assert.False(t, i.getTime().Before(prevTime))
 		prevTime = i.getTime()
 		if totalE == 4348 {
-			//assert.Equal(t, -1, (e).(*NewTickEvent).Tick.LastPrice)
 			t.Log("OK! Found last event")
 			break
 		}

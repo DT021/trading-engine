@@ -10,7 +10,7 @@ import (
 )
 
 type IBroker interface {
-	Connect(errChan chan error, eventChan chan event)
+	Connect(errChan chan error, eventChan chan event, orderMutex *sync.Mutex)
 	OnNewOrder(e *NewOrderEvent)
 	OnCancelRequest(e *OrderCancelRequestEvent)
 	OnReplaceRequest(e *OrderReplaceRequestEvent)
@@ -36,14 +36,14 @@ type SimulatedBroker struct {
 	marketCloseUntilTime   TimeOfDay
 	checkExecutionsOnTicks bool
 	fraction               int64
-	mpMutext               sync.Mutex
+	mpMutext               *sync.Mutex
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
 	return true
 }
 
-func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) {
+func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event, orderMutex *sync.Mutex) {
 	if errChan == nil {
 		panic("Can't connect simulated broker. Error chan is nil. ")
 	}
@@ -60,7 +60,7 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) {
 	b.newOrders = make(map[string]*Order)
 	b.allOrders = make(map[string]*Order)
 
-	b.mpMutext = sync.Mutex{}
+	b.mpMutext = orderMutex
 
 }
 
@@ -197,11 +197,12 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 			Message: "Got in OnTick",
 			Caller:  "Sim Broker",
 		}
-		//fmt.Printf("Broken tick %+v", *tick)
+
 		go b.newError(&err)
 		return
 
 	}
+
 	if len(b.confirmedOrders) == 0 {
 		return
 	}
@@ -706,6 +707,7 @@ func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType O
 	}
 
 	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
+
 		err := ErrUnexpectedOrderState{
 			OrdId:         order.Id,
 			ActualState:   string(order.State),
@@ -724,8 +726,10 @@ func (b *SimulatedBroker) newEvent(e event) {
 		panic("Simulated broker event chan is nil")
 	}
 	time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
-
+	b.eventChan <- e
 	switch i := e.(type) {
+
+
 	case *OrderConfirmationEvent:
 		b.mpMutext.Lock()
 		ord, ok := b.newOrders[i.OrdId]
@@ -763,8 +767,6 @@ func (b *SimulatedBroker) newEvent(e event) {
 		b.mpMutext.Unlock()
 
 	}
-
-	b.eventChan <- e
 
 }
 

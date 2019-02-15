@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -31,7 +32,7 @@ type IStrategy interface {
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
 
-	Connect(errorsChan chan error, eventChan chan event)
+	Connect(errorsChan chan error, eventChan chan event, orderMutex *sync.Mutex)
 	//OnTick(tick *marketdata.Tick)
 }
 
@@ -55,6 +56,7 @@ type BasicStrategy struct {
 	lastEventTime      time.Time
 	strategy           IUserStrategy
 	mostRecentTime     time.Time
+	orderMutex         *sync.Mutex
 }
 
 func (b *BasicStrategy) init() {
@@ -66,7 +68,7 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
+func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event, orderMutex *sync.Mutex) {
 	if eventChan == nil {
 		panic("Can't connect stategy. Event channel is nil")
 	}
@@ -78,6 +80,7 @@ func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
 	b.eventChan = eventChan
 	b.errorsChan = errorsChan
 	b.connected = true
+	b.orderMutex = orderMutex
 }
 
 //Strategy API calls
@@ -139,7 +142,9 @@ func (b *BasicStrategy) NewOrder(order *Order) error {
 		return errors.New("Order is not valid. ")
 	}
 	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
+	b.orderMutex.Lock()
 	err := b.currentTrade.putNewOrder(order)
+	b.orderMutex.Unlock()
 	if err != nil {
 		go b.error(err)
 		return err
@@ -156,9 +161,12 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 	if ordID == "" {
 		return errors.New("Order Id not specified. ")
 	}
+	b.orderMutex.Lock()
 	if !b.currentTrade.hasOrderWithID(ordID) {
 		return errors.New("Order ID not found in confirmed orders. ")
 	}
+	b.orderMutex.Unlock()
+
 	cancelReq := OrderCancelRequestEvent{
 		OrdId:     ordID,
 		BaseEvent: be(b.lastEventTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
@@ -344,7 +352,9 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	if math.IsNaN(e.Price) || e.Price <= 0 {
 		go b.error(errors.New("Price is NaN or less or equal to zero."))
 	}
+	b.orderMutex.Lock()
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
+	b.orderMutex.Unlock()
 	if err != nil {
 		go b.error(err)
 		return
@@ -361,7 +371,10 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 }
 
 func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
+	b.orderMutex.Lock()
 	err := b.currentTrade.cancelOrder(e.OrdId)
+	b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 		return
@@ -370,7 +383,10 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 }
 
 func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
+	b.orderMutex.Lock()
 	err := b.currentTrade.confirmOrder(e.OrdId)
+	b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 		return
@@ -378,14 +394,20 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 }
 
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
+	b.orderMutex.Lock()
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
+	b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 	}
 }
 
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
+	b.orderMutex.Lock()
 	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
+	b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 		return
