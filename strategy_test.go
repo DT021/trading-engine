@@ -11,17 +11,25 @@ import (
 
 //We use some dummy strategy for tests
 type DummyStrategy struct {
-	BasicStrategy
+
 }
 
-func newTestBasicStrategy() *DummyStrategy {
-	bs := BasicStrategy{Symbol: "Test", NPeriods: 20}
-	st := DummyStrategy{bs}
-	st.init()
+func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick)  {
+
+}
+
+func newTestBasicStrategy() *BasicStrategy {
+	st := DummyStrategy{}
+	bs := BasicStrategy{
+		Symbol:   "Test",
+		NPeriods: 20,
+		strategy: &st}
+
+	bs.init()
 	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	st.Connect(errorsChan, eventsChan)
-	return &st
+	bs.Connect(errorsChan, eventsChan)
+	return &bs
 }
 
 func genTickEvents(n int) []event {
@@ -338,7 +346,7 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 
 }
 
-func assertNoErrorsGeneratedByEvents(t *testing.T, st *DummyStrategy) {
+func assertNoErrorsGeneratedByEvents(t *testing.T, st *BasicStrategy) {
 	select {
 	case v, ok := <-st.errorsChan:
 		assert.False(t, ok)
@@ -567,7 +575,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 }
 
-func assertStrategyHasNewOrderEvent(t *testing.T, st *DummyStrategy) {
+func assertStrategyHasNewOrderEvent(t *testing.T, st *BasicStrategy) {
 	v, ok := <-st.eventChan
 	if !ok {
 		t.Fatal("FATAL! Expected new order event.Didn't found any")
@@ -580,7 +588,7 @@ func assertStrategyHasNewOrderEvent(t *testing.T, st *DummyStrategy) {
 	}
 }
 
-func assertStrategyHasNoEvents(t *testing.T, st *DummyStrategy) {
+func assertStrategyHasNoEvents(t *testing.T, st *BasicStrategy) {
 	select {
 	case v, ok := <-st.eventChan:
 		assert.False(t, ok)
@@ -937,7 +945,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	}
 }
 
-func assertStrategyHasCancelRequest(t *testing.T, st *DummyStrategy) {
+func assertStrategyHasCancelRequest(t *testing.T, st *BasicStrategy) {
 	v, ok := <-st.eventChan
 	if !ok {
 		t.Fatal("FATAL! Expected cancel order event.Didn't found any")

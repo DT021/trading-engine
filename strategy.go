@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"sort"
-	"sync"
 	"time"
 )
 
@@ -55,7 +54,6 @@ type BasicStrategy struct {
 	errorsChan         chan error
 	lastEventTime      time.Time
 	strategy           IUserStrategy
-	mut                *sync.Mutex
 	mostRecentTime     time.Time
 }
 
@@ -266,13 +264,15 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
-	b.mostRecentTime = e.Tick.Datetime
+
 	if e == nil {
 		return
 	}
 	if !b.TickIsValid(e.Tick) || e.Tick == nil {
 		return
 	}
+
+	b.mostRecentTime = e.Tick.Datetime
 
 	b.putNewTick(e.Tick)
 	if b.currentTrade.IsOpen() {

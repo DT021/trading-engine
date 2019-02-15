@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,7 @@ type SimulatedBroker struct {
 	marketCloseUntilTime   TimeOfDay
 	checkExecutionsOnTicks bool
 	fraction               int64
+	mpMutext               sync.Mutex
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -57,6 +59,8 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) {
 	b.rejectedOrders = make(map[string]*Order)
 	b.newOrders = make(map[string]*Order)
 	b.allOrders = make(map[string]*Order)
+
+	b.mpMutext = sync.Mutex{}
 
 }
 
@@ -398,7 +402,6 @@ func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
 		Qty:       order.Qty,
 		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
-	//b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
 	return
 
@@ -426,7 +429,7 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 		Qty:       order.Qty,
 		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
-	//b.updateFilledOrders(order, order.Qty)
+
 	go b.newEvent(&fillE)
 	return
 
@@ -467,7 +470,6 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			//b.updateFilledOrders(order, qty)
 			go b.newEvent(&fillE)
 			return
 
@@ -485,7 +487,6 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 
-				//b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -507,8 +508,6 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			//b.updateFilledOrders(order, qty)
-
 			go b.newEvent(&fillE)
 			return
 
@@ -525,7 +524,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					Qty:       qty,
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
-				//b.updateFilledOrders(order, qty)
+
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -573,7 +572,6 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		//b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -598,7 +596,6 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		//b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -663,7 +660,6 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			Qty:       qty,
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
-		//b.updateFilledOrders(order, qty)
 
 		go b.newEvent(&fillE)
 
@@ -680,7 +676,6 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		//b.updateFilledOrders(order, order.Qty)
 		go b.newEvent(&fillE)
 	}
 
@@ -724,18 +719,6 @@ func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType O
 	return nil
 }
 
-/*func (b *SimulatedBroker) updateFilledOrders(order *Order, execQty int) {
-	if execQty == order.Qty-order.ExecQty {
-		b.filledOrders[order.Id] = order
-		delete(b.confirmedOrders, order.Id)
-	}
-}*/
-
-/*func (b *SimulatedBroker) updateCanceledOrders(order *Order) {
-	b.canceledOrders[order.Id] = order
-	delete(b.confirmedOrders, order.Id)
-}*/
-
 func (b *SimulatedBroker) newEvent(e event) {
 	if b.eventChan == nil {
 		panic("Simulated broker event chan is nil")
@@ -744,6 +727,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 
 	switch i := e.(type) {
 	case *OrderConfirmationEvent:
+		b.mpMutext.Lock()
 		ord, ok := b.newOrders[i.OrdId]
 		if !ok {
 			panic("Confirmation of not existing order")
@@ -751,8 +735,10 @@ func (b *SimulatedBroker) newEvent(e event) {
 
 		b.confirmedOrders[i.OrdId] = ord
 		delete(b.newOrders, i.OrdId)
+		b.mpMutext.Unlock()
 
 	case *OrderCancelEvent:
+		b.mpMutext.Lock()
 		ord, ok := b.confirmedOrders[i.OrdId]
 		if !ok {
 			msg := fmt.Sprintf("Can't find order %v in confirmed map to cancel it. ", i.OrdId)
@@ -760,8 +746,10 @@ func (b *SimulatedBroker) newEvent(e event) {
 		}
 		b.canceledOrders[i.OrdId] = ord
 		delete(b.confirmedOrders, i.OrdId)
+		b.mpMutext.Unlock()
 
 	case *OrderFillEvent:
+		b.mpMutext.Lock()
 		ord, ok := b.confirmedOrders[i.OrdId]
 		if !ok {
 			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
@@ -772,6 +760,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 			b.filledOrders[i.OrdId] = ord
 			delete(b.confirmedOrders, i.OrdId)
 		}
+		b.mpMutext.Unlock()
 
 	}
 
