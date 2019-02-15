@@ -203,25 +203,11 @@ EVENT_LOOP:
 				c.eCandleClose(i)
 			case *NewTickEvent:
 				c.eTick(i)
-			case *NewOrderEvent:
-				c.eNewOrder(i)
-			case *OrderConfirmationEvent:
-				c.eOrderConfirmed(i)
-			case *OrderCancelRequestEvent:
-				c.eCancelRequest(i)
-			case *OrderReplaceRequestEvent:
-				c.eReplaceRequest(i)
-			case *OrderRejectedEvent:
-				c.eOrderRejected(i)
-			case *OrderCancelEvent:
-				c.eOrderCanceled(i)
-			case *OrderReplacedEvent:
-				c.eOrderReplaced(i)
-			case *OrderFillEvent:
-				c.eFill(i)
 			case *EndOfDataEvent:
 				c.eEndOfData(i)
 				break EVENT_LOOP
+			default:
+				panic("Unexpected event")
 
 			}
 		case e := <-c.eventsChan:
@@ -243,12 +229,7 @@ EVENT_LOOP:
 
 			switch i := e.(type) {
 
-			case *CandleOpenEvent:
-				c.eCandleOpen(i)
-			case *CandleCloseEvent:
-				c.eCandleClose(i)
-			case *NewTickEvent:
-				c.eTick(i)
+
 			case *NewOrderEvent:
 				c.eNewOrder(i)
 			case *OrderConfirmationEvent:
@@ -265,9 +246,8 @@ EVENT_LOOP:
 				c.eOrderReplaced(i)
 			case *OrderFillEvent:
 				c.eFill(i)
-			case *EndOfDataEvent:
-				c.eEndOfData(i)
-				break EVENT_LOOP
+			default:
+				panic("Unexpected event in events chan")
 
 			}
 		case e := <-c.errChan:

@@ -35,6 +35,8 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	return &bs
 
 }
+/*Что происходит в брокере - падает эвент, мы генерим че-то и параллельно падает еще эвент,
+мапы и ордера не успевают апдейтнуться*/
 
 func TestEngine_Run(t *testing.T) {
 	os.Remove("log.txt")
@@ -47,7 +49,6 @@ func TestEngine_Run(t *testing.T) {
 	for _, s := range md.Symbols {
 		st := newTestStrategyWithLogic(s)
 		strategyMap[s] = st
-		break
 
 	}
 

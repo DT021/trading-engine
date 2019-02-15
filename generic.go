@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"fmt"
 	"github.com/pkg/errors"
 	"math"
 	"time"
@@ -381,7 +382,9 @@ func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime tim
 
 	qtyLeft := order.Qty - order.ExecQty
 	if qtyLeft < qty {
-		return nil, errors.New("Can't execute order. Qty is greater than unexecuted order qty")
+		msg := fmt.Sprintf("Can't execute order %v. Qty is greater than unexecuted order qty. Order: %+v, execQty: %v",
+			id, *order, qty)
+		return nil, errors.New(msg)
 	}
 
 	if qty == qtyLeft {

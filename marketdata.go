@@ -154,7 +154,7 @@ func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
 	defer f.Close()
 
 	for _, t := range ticks {
-		if !t.HasTrade{
+		if !t.HasTrade {
 			continue
 		}
 		if _, err := f.Write([]byte(t.String() + "\n")); err != nil {
@@ -222,17 +222,16 @@ func (m *BTM) genTickEvents() {
 
 		delta := tick.Datetime.Sub(prevTick.Datetime)
 		e := NewTickEvent{
-			Tick:      tick,
-			BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
-		}
-
-		if delta.Seconds() < 2 {
-			time.Sleep(time.Duration(delta.Nanoseconds()/(m.fraction*1000000)) * time.Millisecond)
-		} else {
-			time.Sleep(time.Duration(2/m.fraction) * time.Second)
+			Tick:      prevTick,
+			BaseEvent: BaseEvent{Time: prevTick.Datetime, Symbol: prevTick.Symbol},
 		}
 
 		m.newEvent(&e)
+		if delta.Nanoseconds()/1000000 < 500 {
+			time.Sleep(time.Duration(delta.Nanoseconds()/(m.fraction)) * time.Nanosecond)
+		} else {
+			time.Sleep(time.Duration(800*1000002/m.fraction) * time.Nanosecond)
+		}
 
 		prevTick = tick
 
