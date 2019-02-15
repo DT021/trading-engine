@@ -1,16 +1,16 @@
 package engine
 
 import (
-	"sort"
-	"hash/fnv"
-	"github.com/pkg/errors"
-	"strconv"
-	"path"
-	"os"
 	"alex/marketdata"
-	"time"
 	"bufio"
+	"github.com/pkg/errors"
+	"hash/fnv"
+	"os"
+	"path"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type IMarketData interface {
@@ -223,7 +223,7 @@ func (m *BTM) genTickEvents() {
 		}
 
 		if delta.Seconds() < 2 {
-			time.Sleep(time.Duration(delta.Nanoseconds()/m.fraction) * time.Nanosecond)
+			time.Sleep(time.Duration(delta.Nanoseconds()/(m.fraction*1000000)) * time.Millisecond)
 		} else {
 			time.Sleep(time.Duration(2/m.fraction) * time.Second)
 		}

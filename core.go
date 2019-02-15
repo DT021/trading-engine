@@ -1,10 +1,10 @@
 package engine
 
 import (
-	"time"
 	"fmt"
 	"log"
 	"os"
+	"time"
 )
 
 type EnginePart interface {
@@ -175,14 +175,15 @@ EVENT_LOOP:
 		select {
 		case e := <-c.eventsChan:
 			if c.backtestMode {
-				msg := fmt.Sprintf("%v ||| %v", e.getName(), e)
+				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
 				c.log.Print(msg)
 				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
 					panic(e)
 				}
 				t := e.getTime()
 				if t.Before(c.lastTime) {
-					out := fmt.Sprintf("Events in wrong order: %v, %v", c.prevEvent, e)
+					out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
+						c.prevEvent.getTime(), e.getName(), e.getTime())
 					c.log.Print(out)
 				}
 				c.lastTime = t

@@ -3,9 +3,9 @@ package engine
 import (
 	"alex/marketdata"
 	"errors"
-	"time"
-	"math"
 	"fmt"
+	"math"
+	"time"
 )
 
 type IBroker interface {
@@ -22,6 +22,7 @@ type IBroker interface {
 type SimulatedBroker struct {
 	errChan                chan error
 	eventChan              chan event
+	newOrders              map[string]*Order
 	filledOrders           map[string]*Order
 	canceledOrders         map[string]*Order
 	confirmedOrders        map[string]*Order
@@ -54,6 +55,7 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) {
 	b.canceledOrders = make(map[string]*Order)
 	b.confirmedOrders = make(map[string]*Order)
 	b.rejectedOrders = make(map[string]*Order)
+	b.newOrders = make(map[string]*Order)
 	b.allOrders = make(map[string]*Order)
 
 }
@@ -87,6 +89,7 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 	}
 
 	b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
+	b.newOrders[e.LinkedOrder.Id] = e.LinkedOrder
 	confEvent := OrderConfirmationEvent{
 		OrdId:     e.LinkedOrder.Id,
 		BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
@@ -94,7 +97,6 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 
 	go b.newEvent(&confEvent)
 
-	b.confirmedOrders[e.LinkedOrder.Id] = e.LinkedOrder
 }
 
 func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
@@ -103,13 +105,10 @@ func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
 		go b.newError(err)
 		return
 	}
-	b.canceledOrders[e.OrdId] = b.confirmedOrders[e.OrdId]
-	delete(b.confirmedOrders, e.OrdId)
 	orderCancelE := OrderCancelEvent{
 		OrdId:     e.OrdId,
 		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
-
 	go b.newEvent(&orderCancelE)
 
 }
@@ -194,7 +193,7 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 			Message: "Got in OnTick",
 			Caller:  "Sim Broker",
 		}
-		fmt.Println("Broken tick")
+		//fmt.Printf("Broken tick %+v", *tick)
 		go b.newError(&err)
 		return
 
@@ -204,7 +203,10 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 	}
 
 	for _, o := range b.confirmedOrders {
-		b.checkOrderExecutionOnTick(o, tick)
+		if o.Symbol == tick.Symbol {
+			b.checkOrderExecutionOnTick(o, tick)
+		}
+
 	}
 
 }
@@ -268,7 +270,7 @@ func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
 
 	if !tick.IsOpening {
 		if b.marketOpenUntilTime.Before(tick.Datetime) {
-			b.updateCanceledOrders(order)
+			//b.updateCanceledOrders(order)
 			cancelE := OrderCancelEvent{
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
@@ -291,7 +293,7 @@ func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
 
 	if !tick.IsClosing {
 		if b.marketCloseUntilTime.Before(tick.Datetime) {
-			b.updateCanceledOrders(order)
+			//b.updateCanceledOrders(order)
 			cancelE := OrderCancelEvent{
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
@@ -313,7 +315,7 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
-			b.updateCanceledOrders(order)
+			//b.updateCanceledOrders(order)
 			go b.newEvent(&cancelE)
 			return
 		}
@@ -324,7 +326,7 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 			}
-			b.updateCanceledOrders(order)
+			//b.updateCanceledOrders(order)
 			go b.newEvent(&cancelE)
 			return
 		}
@@ -345,7 +347,7 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 			OrdId:     order.Id,
 			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
 		}
-		b.updateCanceledOrders(order)
+		//b.updateCanceledOrders(order)
 		go b.newEvent(&cancelE)
 		return
 	}
@@ -362,15 +364,14 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 		BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 	}
 
-	b.updateFilledOrders(order, execQty)
 	go b.newEvent(&fillE)
 
 	if execQty < order.Qty {
-		b.updateCanceledOrders(order)
 		cancelE := OrderCancelEvent{
 			OrdId:     order.Id,
 			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 		}
+		time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
 		go b.newEvent(&cancelE)
 	}
 
@@ -397,7 +398,7 @@ func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
 		Qty:       order.Qty,
 		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
-	b.updateFilledOrders(order, order.Qty)
+	//b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
 	return
 
@@ -425,7 +426,7 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 		Qty:       order.Qty,
 		BaseEvent: be(tick.Datetime, order.Symbol),
 	}
-	b.updateFilledOrders(order, order.Qty)
+	//b.updateFilledOrders(order, order.Qty)
 	go b.newEvent(&fillE)
 	return
 
@@ -466,7 +467,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			b.updateFilledOrders(order, qty)
+			//b.updateFilledOrders(order, qty)
 			go b.newEvent(&fillE)
 			return
 
@@ -484,7 +485,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 
-				b.updateFilledOrders(order, qty)
+				//b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -506,7 +507,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			b.updateFilledOrders(order, qty)
+			//b.updateFilledOrders(order, qty)
 
 			go b.newEvent(&fillE)
 			return
@@ -524,7 +525,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 					Qty:       qty,
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
-				b.updateFilledOrders(order, qty)
+				//b.updateFilledOrders(order, qty)
 				go b.newEvent(&fillE)
 				return
 			} else {
@@ -572,7 +573,7 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		b.updateFilledOrders(order, qty)
+		//b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -597,7 +598,7 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		b.updateFilledOrders(order, qty)
+		//b.updateFilledOrders(order, qty)
 		go b.newEvent(&fillE)
 		return
 
@@ -662,7 +663,7 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			Qty:       qty,
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
-		b.updateFilledOrders(order, qty)
+		//b.updateFilledOrders(order, qty)
 
 		go b.newEvent(&fillE)
 
@@ -679,7 +680,7 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 			BaseEvent: be(tick.Datetime, order.Symbol),
 		}
 
-		b.updateFilledOrders(order, order.Qty)
+		//b.updateFilledOrders(order, order.Qty)
 		go b.newEvent(&fillE)
 	}
 
@@ -723,23 +724,57 @@ func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType O
 	return nil
 }
 
-func (b *SimulatedBroker) updateFilledOrders(order *Order, execQty int) {
+/*func (b *SimulatedBroker) updateFilledOrders(order *Order, execQty int) {
 	if execQty == order.Qty-order.ExecQty {
 		b.filledOrders[order.Id] = order
 		delete(b.confirmedOrders, order.Id)
 	}
-}
+}*/
 
-func (b *SimulatedBroker) updateCanceledOrders(order *Order) {
+/*func (b *SimulatedBroker) updateCanceledOrders(order *Order) {
 	b.canceledOrders[order.Id] = order
 	delete(b.confirmedOrders, order.Id)
-}
+}*/
 
 func (b *SimulatedBroker) newEvent(e event) {
 	if b.eventChan == nil {
 		panic("Simulated broker event chan is nil")
 	}
 	time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
+
+	switch i := e.(type) {
+	case *OrderConfirmationEvent:
+		ord, ok := b.newOrders[i.OrdId]
+		if !ok {
+			panic("Confirmation of not existing order")
+		}
+
+		b.confirmedOrders[i.OrdId] = ord
+		delete(b.newOrders, i.OrdId)
+
+	case *OrderCancelEvent:
+		ord, ok := b.confirmedOrders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to cancel it. ", i.OrdId)
+			panic(msg)
+		}
+		b.canceledOrders[i.OrdId] = ord
+		delete(b.confirmedOrders, i.OrdId)
+
+	case *OrderFillEvent:
+		ord, ok := b.confirmedOrders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
+			panic(msg)
+		}
+		execQty := i.Qty
+		if execQty == ord.Qty-ord.ExecQty {
+			b.filledOrders[i.OrdId] = ord
+			delete(b.confirmedOrders, i.OrdId)
+		}
+
+	}
+
 	b.eventChan <- e
 
 }

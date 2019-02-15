@@ -1,38 +1,29 @@
 package engine
 
 import (
-	"testing"
 	"alex/marketdata"
-	"fmt"
 	"math/rand"
+	"testing"
 )
 
 type DummyStrategyWithLogic struct {
 }
 
 func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
-	fmt.Println("OnTick")
 
 	if len(b.currentTrade.AllOrdersIDMap) == 0 && tick.LastPrice > 20 {
 		price := tick.LastPrice - rand.Float64()
-		order := Order{
-			Side:   OrderSell,
-			Qty:    100,
-			Symbol: tick.Symbol,
-			Price:  price,
-			State:  NewOrder,
-			Type:   LimitOrder,
-			Id:     tick.Datetime.Format("2006-01-02|15:04:05.000") + fmt.Sprintf("%v_%v", tick.Symbol, price),
-			Time:   tick.Datetime,
+		err := b.NewLimitOrder(price, OrderSell, 100)
+		if err != nil {
+			panic(err)
 		}
-		b.NewOrder(&order)
 	}
 }
 
-func newTestStrategyWithLogic() *BasicStrategy {
+func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	st := DummyStrategyWithLogic{}
 	bs := BasicStrategy{
-		Symbol:   "Test",
+		Symbol:   symbol,
 		NPeriods: 20,
 		strategy: &st}
 
@@ -52,9 +43,9 @@ func TestEngine_Run(t *testing.T) {
 	strategyMap := make(map[string]IStrategy)
 
 	for _, s := range md.Symbols {
-		st := newTestStrategyWithLogic()
-		st.Symbol = s
+		st := newTestStrategyWithLogic(s)
 		strategyMap[s] = st
+
 	}
 
 	engine := NewEngine(strategyMap, broker, md, true)

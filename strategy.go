@@ -2,11 +2,11 @@ package engine
 
 import (
 	"alex/marketdata"
-	"sort"
-	"time"
 	"errors"
 	"math"
+	"sort"
 	"sync"
+	"time"
 )
 
 const (
@@ -56,6 +56,7 @@ type BasicStrategy struct {
 	lastEventTime      time.Time
 	strategy           IUserStrategy
 	mut                *sync.Mutex
+	mostRecentTime     time.Time
 }
 
 func (b *BasicStrategy) init() {
@@ -112,19 +113,39 @@ func (b *BasicStrategy) Position() int {
 
 }
 
+func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int) error {
+	order := Order{
+		Side:   side,
+		Qty:    qty,
+		Symbol: b.Symbol,
+		Price:  price,
+		State:  NewOrder,
+		Type:   LimitOrder,
+		Time:   b.mostRecentTime,
+	}
+
+	err := b.NewOrder(&order)
+	return err
+
+}
+
 func (b *BasicStrategy) NewOrder(order *Order) error {
 	if order.Symbol != b.Symbol {
 		return errors.New("Can't put new order. Strategy symbol and order symbol are different. ")
 	}
 	if order.Id == "" {
-		order.Id = time.Now().Format(orderidLayout)
+		order.Id = order.Time.Format(orderidLayout)
 	}
 
 	if !order.isValid() {
 		return errors.New("Order is not valid. ")
 	}
 	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
-	b.currentTrade.putNewOrder(order)
+	err := b.currentTrade.putNewOrder(order)
+	if err != nil {
+		go b.error(err)
+		return err
+	}
 	ordEvent := NewOrderEvent{
 		LinkedOrder: order,
 		BaseEvent:   be(order.Time, order.Symbol),
@@ -245,6 +266,7 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	b.mostRecentTime = e.Tick.Datetime
 	if e == nil {
 		return
 	}
@@ -254,7 +276,10 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 
 	b.putNewTick(e.Tick)
 	if b.currentTrade.IsOpen() {
-		b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
+		err := b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
+		if err != nil {
+			go b.error(err)
+		}
 	}
 	if len(b.Ticks) < b.NPeriods {
 		return

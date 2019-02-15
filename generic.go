@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"time"
 	"github.com/pkg/errors"
 	"math"
+	"time"
 )
 
 type OrderType string
@@ -179,6 +179,7 @@ func (o *Order) confirm() error {
 		return errors.New("Can't confirm order. State is not NewOrder")
 	}
 	o.State = ConfirmedOrder
+
 	return nil
 
 }
