@@ -115,7 +115,7 @@ type OrderFillEvent struct {
 }
 
 func (c *OrderFillEvent) getName() string {
-	return "OrderConfirmationEvent"
+	return "OrderFillEvent"
 }
 
 type OrderCancelEvent struct {

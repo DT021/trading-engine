@@ -306,6 +306,7 @@ func (t *Trade) putNewOrder(o *Order) error {
 //confirmOrder confirms order by ID if it's in NewOrder map. Order moves from NewOrder map to ConfirmedOrders map
 //it returns error if ID not in NewOrders map and if ID is already in ConfirmedOrders map
 func (t *Trade) confirmOrder(id string) error {
+
 	if order, ok := t.NewOrders[id]; !ok {
 		return errors.New("Can't confirm order. ID is not in the NewOrders map")
 	} else {

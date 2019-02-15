@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"github.com/pkg/errors"
 	"hash/fnv"
+	"math"
 	"os"
 	"path"
 	"sort"
@@ -279,6 +280,15 @@ func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
 		return nil, err
 	}
 	tm := time.Unix(i, 0)
+	hasTrade := false
+	hasQuote := false
+	if !math.IsNaN(last) && lastSize > 0 {
+		hasTrade = true
+	}
+
+	if !math.IsNaN(bid) && !math.IsNaN(ask) && askSize > 0 && bidSize > 0 {
+		hasQuote = true
+	}
 
 	tick := marketdata.Tick{
 		Datetime:  tm,
@@ -292,6 +302,8 @@ func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
 		AskPrice:  ask,
 		AskSize:   askSize,
 		AskExch:   lsp[10],
+		HasTrade:  hasTrade,
+		HasQuote:  hasQuote,
 		CondQuote: lsp[11],
 		Cond1:     lsp[12],
 		Cond2:     lsp[13],

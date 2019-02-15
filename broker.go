@@ -20,6 +20,11 @@ type IBroker interface {
 	OnTick(tick *marketdata.Tick)
 }
 
+type SimBrokerOrder struct{
+	*Order
+	BrokerState OrderState
+}
+
 type SimulatedBroker struct {
 	errChan                chan error
 	eventChan              chan event
@@ -207,8 +212,8 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 		return
 	}
 
-	for _, o := range b.confirmedOrders {
-		if o.Symbol == tick.Symbol {
+	for _, o := range b.allOrders {
+		if o.Symbol == tick.Symbol && (o.State == ConfirmedOrder || o.State == PartialFilledOrder) {
 			b.checkOrderExecutionOnTick(o, tick)
 		}
 
@@ -728,7 +733,6 @@ func (b *SimulatedBroker) newEvent(e event) {
 	time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
 	b.eventChan <- e
 	switch i := e.(type) {
-
 
 	case *OrderConfirmationEvent:
 		b.mpMutext.Lock()
