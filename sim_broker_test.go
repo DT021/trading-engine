@@ -1,13 +1,16 @@
 package engine
 
-import (
+import "sync"
+
+/*import (
 	"alex/marketdata"
 	"github.com/stretchr/testify/assert"
 	"math"
 	"sync"
 	"testing"
 	"time"
-)
+)*/
+
 
 func newTestSimulatedBroker() *SimulatedBroker {
 	b := SimulatedBroker{delay: 1000}
@@ -19,7 +22,7 @@ func newTestSimulatedBroker() *SimulatedBroker {
 	b.Connect(errChan, eventChan, mut)
 
 	return &b
-}
+}/*
 
 func TestSimulatedBroker_Connect(t *testing.T) {
 	t.Log("Test connect simulated broker")
@@ -3296,4 +3299,4 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-}
+}*/

@@ -20,20 +20,20 @@ type IBroker interface {
 	OnTick(tick *marketdata.Tick)
 }
 
-type SimBrokerOrder struct{
+type SimBrokerOrder struct {
 	*Order
 	BrokerState OrderState
 }
 
 type SimulatedBroker struct {
-	errChan                chan error
-	eventChan              chan event
-	newOrders              map[string]*Order
-	filledOrders           map[string]*Order
-	canceledOrders         map[string]*Order
-	confirmedOrders        map[string]*Order
-	rejectedOrders         map[string]*Order
-	allOrders              map[string]*Order
+	errChan   chan error
+	eventChan chan event
+
+	filledOrders           map[string]*SimBrokerOrder
+	canceledOrders         map[string]*SimBrokerOrder
+	confirmedOrders        map[string]*SimBrokerOrder
+	rejectedOrders         map[string]*SimBrokerOrder
+	allOrders              map[string]*SimBrokerOrder
 	delay                  int64
 	hasQuotesAndTrades     bool
 	strictLimitOrders      bool
@@ -58,12 +58,12 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event, orde
 	b.errChan = errChan
 	b.eventChan = eventChan
 
-	b.filledOrders = make(map[string]*Order)
-	b.canceledOrders = make(map[string]*Order)
-	b.confirmedOrders = make(map[string]*Order)
-	b.rejectedOrders = make(map[string]*Order)
-	b.newOrders = make(map[string]*Order)
-	b.allOrders = make(map[string]*Order)
+	b.filledOrders = make(map[string]*SimBrokerOrder)
+	b.canceledOrders = make(map[string]*SimBrokerOrder)
+	b.confirmedOrders = make(map[string]*SimBrokerOrder)
+	b.rejectedOrders = make(map[string]*SimBrokerOrder)
+
+	b.allOrders = make(map[string]*SimBrokerOrder)
 
 	b.mpMutext = orderMutex
 
@@ -79,8 +79,8 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 			BaseEvent: be(e.Time, e.Symbol),
 		}
 		go b.newEvent(&rejectEvent)
-		b.rejectedOrders[e.LinkedOrder.Id] = e.LinkedOrder
-		b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
+		b.rejectedOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder}
+		b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder}
 		return
 	}
 
@@ -92,13 +92,13 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 			BaseEvent: be(e.Time, e.Symbol),
 		}
 		go b.newEvent(&rejectEvent)
-		b.rejectedOrders[e.LinkedOrder.Id] = e.LinkedOrder
+		b.rejectedOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder}
 
 		return
 	}
 
-	b.allOrders[e.LinkedOrder.Id] = e.LinkedOrder
-	b.newOrders[e.LinkedOrder.Id] = e.LinkedOrder
+	b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, ConfirmedOrder}
+
 	confEvent := OrderConfirmationEvent{
 		OrdId:     e.LinkedOrder.Id,
 		BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
@@ -213,7 +213,7 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 	}
 
 	for _, o := range b.allOrders {
-		if o.Symbol == tick.Symbol && (o.State == ConfirmedOrder || o.State == PartialFilledOrder) {
+		if o.Symbol == tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
 			b.checkOrderExecutionOnTick(o, tick)
 		}
 
@@ -236,9 +236,19 @@ func (b *SimulatedBroker) tickIsValid(tick *marketdata.Tick) bool {
 	return true
 }
 
-func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketdata.Tick) {
+func (b *SimulatedBroker) checkOrderExecutionOnTick(orderSim *SimBrokerOrder, tick *marketdata.Tick) {
+
+
+	err := b.validateOrderForExecution(orderSim, orderSim.Type)
+	if err != nil {
+		go b.newError(err)
+		return
+	}
+
+	order := orderSim.Order
 
 	switch order.Type {
+
 	case MarketOrder:
 		b.checkOnTickMarket(order, tick)
 		return
@@ -272,11 +282,6 @@ func (b *SimulatedBroker) checkOrderExecutionOnTick(order *Order, tick *marketda
 }
 
 func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
-	err := b.validateOrderForExecution(order, LimitOnOpen)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
 
 	if !tick.IsOpening {
 		if b.marketOpenUntilTime.Before(tick.Datetime) {
@@ -295,11 +300,7 @@ func (b *SimulatedBroker) checkOnTickLOO(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickLOC(order *Order, tick *marketdata.Tick) {
-	err := b.validateOrderForExecution(order, LimitOnClose)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
+
 
 	if !tick.IsClosing {
 		if b.marketCloseUntilTime.Before(tick.Datetime) {
@@ -388,11 +389,7 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *Order, tick *marketdata
 }
 
 func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
-	err := b.validateOrderForExecution(order, MarketOnOpen)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
+
 
 	if !tick.IsOpening {
 		return
@@ -415,11 +412,7 @@ func (b *SimulatedBroker) checkOnTickMOO(order *Order, tick *marketdata.Tick) {
 
 func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 	//Todo подумать над реализацией когда отркрывающего тика вообще нет
-	err := b.validateOrderForExecution(order, MarketOnClose)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
+
 
 	if !tick.IsClosing {
 		return
@@ -442,12 +435,6 @@ func (b *SimulatedBroker) checkOnTickMOC(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) {
-
-	err := b.validateOrderForExecution(order, LimitOrder)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
 
 	if !tick.HasTrade {
 		return
@@ -546,11 +533,7 @@ func (b *SimulatedBroker) checkOnTickLimit(order *Order, tick *marketdata.Tick) 
 }
 
 func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
-	err := b.validateOrderForExecution(order, StopOrder)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
+
 
 	if !tick.HasTrade {
 		return
@@ -618,11 +601,6 @@ func (b *SimulatedBroker) checkOnTickStop(order *Order, tick *marketdata.Tick) {
 }
 
 func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick) {
-	err := b.validateOrderForExecution(order, MarketOrder)
-	if err != nil {
-		go b.newError(err)
-		return
-	}
 
 	if b.hasQuotesAndTrades && !tick.HasQuote {
 		return
@@ -689,7 +667,7 @@ func (b *SimulatedBroker) checkOnTickMarket(order *Order, tick *marketdata.Tick)
 
 //validateOrderForExecution checks if order is valid and can be filled. Returns nil if order is valid
 //or error in other cases
-func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType OrderType) error {
+func (b *SimulatedBroker) validateOrderForExecution(order *SimBrokerOrder, expectedType OrderType) error {
 	if !order.isValid() {
 		err := ErrInvalidOrder{
 			OrdId:   order.Id,
@@ -711,7 +689,7 @@ func (b *SimulatedBroker) validateOrderForExecution(order *Order, expectedType O
 		return &err
 	}
 
-	if order.State != ConfirmedOrder && order.State != PartialFilledOrder {
+	if order.BrokerState != ConfirmedOrder && order.BrokerState != PartialFilledOrder {
 
 		err := ErrUnexpectedOrderState{
 			OrdId:         order.Id,
@@ -736,13 +714,13 @@ func (b *SimulatedBroker) newEvent(e event) {
 
 	case *OrderConfirmationEvent:
 		b.mpMutext.Lock()
-		ord, ok := b.newOrders[i.OrdId]
+		ord, ok := b.allOrders[i.OrdId]
 		if !ok {
 			panic("Confirmation of not existing order")
 		}
-
+		ord.BrokerState = ConfirmedOrder
 		b.confirmedOrders[i.OrdId] = ord
-		delete(b.newOrders, i.OrdId)
+
 		b.mpMutext.Unlock()
 
 	case *OrderCancelEvent:
@@ -753,6 +731,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 			panic(msg)
 		}
 		b.canceledOrders[i.OrdId] = ord
+		ord.BrokerState = CanceledOrder
 		delete(b.confirmedOrders, i.OrdId)
 		b.mpMutext.Unlock()
 
@@ -767,6 +746,9 @@ func (b *SimulatedBroker) newEvent(e event) {
 		if execQty == ord.Qty-ord.ExecQty {
 			b.filledOrders[i.OrdId] = ord
 			delete(b.confirmedOrders, i.OrdId)
+			ord.BrokerState = FilledOrder
+		} else {
+			ord.BrokerState = PartialFilledOrder
 		}
 		b.mpMutext.Unlock()
 

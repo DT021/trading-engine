@@ -154,6 +154,9 @@ func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
 	defer f.Close()
 
 	for _, t := range ticks {
+		if !t.HasTrade{
+			continue
+		}
 		if _, err := f.Write([]byte(t.String() + "\n")); err != nil {
 			go m.newError(err)
 		}

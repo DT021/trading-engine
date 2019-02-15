@@ -19,6 +19,7 @@ type Engine struct {
 	StrategyMap         map[string]IStrategy
 	eventsChan          chan event
 	errChan             chan error
+	mdChan              chan event
 	lastTime            time.Time
 	prevEvent           event
 	log                 log.Logger
@@ -27,6 +28,7 @@ type Engine struct {
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, backtestMode bool) *Engine {
 	eventChan := make(chan event)
+	mdChan := make(chan event)
 	errChan := make(chan error)
 	mutex := &sync.Mutex{}
 
@@ -37,7 +39,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, 
 	}
 
 	broker.Connect(errChan, eventChan, mutex)
-	marketdata.Connect(errChan, eventChan)
+	marketdata.Connect(errChan, mdChan)
 	marketdata.SetSymbols(symbols)
 	eng := Engine{
 		Symbols:             symbols,
@@ -46,6 +48,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, 
 		StrategyMap:         sp,
 		eventsChan:          eventChan,
 		errChan:             errChan,
+		mdChan:              mdChan,
 	}
 
 	eng.backtestMode = backtestMode
@@ -175,6 +178,52 @@ func (c *Engine) Run() {
 EVENT_LOOP:
 	for {
 		select {
+		case e := <-c.mdChan:
+			if c.backtestMode {
+				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
+				c.log.Print(msg)
+				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
+					panic(e)
+				}
+				t := e.getTime()
+				if t.Before(c.lastTime) {
+					out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
+						c.prevEvent.getTime(), e.getName(), e.getTime())
+					c.log.Print(out)
+				}
+				c.lastTime = t
+				c.prevEvent = e
+			}
+
+			switch i := e.(type) {
+
+			case *CandleOpenEvent:
+				c.eCandleOpen(i)
+			case *CandleCloseEvent:
+				c.eCandleClose(i)
+			case *NewTickEvent:
+				c.eTick(i)
+			case *NewOrderEvent:
+				c.eNewOrder(i)
+			case *OrderConfirmationEvent:
+				c.eOrderConfirmed(i)
+			case *OrderCancelRequestEvent:
+				c.eCancelRequest(i)
+			case *OrderReplaceRequestEvent:
+				c.eReplaceRequest(i)
+			case *OrderRejectedEvent:
+				c.eOrderRejected(i)
+			case *OrderCancelEvent:
+				c.eOrderCanceled(i)
+			case *OrderReplacedEvent:
+				c.eOrderReplaced(i)
+			case *OrderFillEvent:
+				c.eFill(i)
+			case *EndOfDataEvent:
+				c.eEndOfData(i)
+				break EVENT_LOOP
+
+			}
 		case e := <-c.eventsChan:
 			if c.backtestMode {
 				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
