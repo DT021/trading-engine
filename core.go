@@ -25,9 +25,9 @@ type Engine struct {
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode bool) *Engine {
-	brokerChan := make(chan event, 1)
-	strategyChan := make(chan event, 1)
-	mdChan := make(chan event, 1)
+	brokerChan := make(chan event)
+	strategyChan := make(chan event)
+	mdChan := make(chan event, 5)
 	errChan := make(chan error)
 
 	var symbols []string
@@ -183,8 +183,10 @@ EVENT_LOOP:
 			select {
 			case e := <-c.strategiesChan:
 				sigEvent = e
-			case <-time.After(15 * time.Microsecond):
+			case <-time.After(300 * time.Microsecond):
 				sigEvent = nil
+			//default:
+			//	sigEvent = nil
 			}
 
 		}
@@ -192,8 +194,10 @@ EVENT_LOOP:
 			select {
 			case e := <-c.brokerChan:
 				ordEvent = e
-			case <-time.After(15 * time.Microsecond):
+			case <-time.After(300 * time.Microsecond):
 				ordEvent = nil
+			//default:
+			//	ordEvent = nil
 			}
 		}
 		if mdEvent == nil {
@@ -293,7 +297,7 @@ EVENT_LOOP:
 			case *OrderRejectedEvent:
 				c.eOrderRejected(i)
 			case *OrderCancelEvent:
-				c.eOrderCanceled(i)
+				go c.eOrderCanceled(i)
 			case *OrderReplacedEvent:
 				c.eOrderReplaced(i)
 			case *OrderFillEvent:
