@@ -34,7 +34,7 @@ type BTM struct {
 	errChan          chan error
 	eventChan        chan event
 	Storage          marketdata.Storage
-	fraction         int64
+
 }
 
 func (m *BTM) SetSymbols(symbols []string) {
@@ -216,8 +216,6 @@ func (m *BTM) genTickEvents() {
 			prevTick = tick
 			continue
 		}
-
-
 		e := NewTickEvent{
 			Tick:      prevTick,
 			BaseEvent: BaseEvent{Time: prevTick.Datetime, Symbol: prevTick.Symbol},

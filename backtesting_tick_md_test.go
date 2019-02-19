@@ -1,19 +1,19 @@
 package engine
 
 import (
-	"testing"
-	"github.com/stretchr/testify/assert"
-	"fmt"
 	"alex/marketdata"
-	"github.com/pkg/errors"
-	"path"
-	"os"
-	"io/ioutil"
-	"encoding/json"
-	"time"
 	"bufio"
-	"strings"
+	"encoding/json"
+	"fmt"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"io/ioutil"
+	"os"
+	"path"
 	"strconv"
+	"strings"
+	"testing"
+	"time"
 )
 
 func TestBTM_getFilename(t *testing.T) {
@@ -126,7 +126,10 @@ func newTestBTM() *BTM {
 		Storage:    &storage,
 	}
 
-	createDirIfNotExists(b.Folder)
+	err := createDirIfNotExists(b.Folder)
+	if err != nil {
+		panic(err)
+	}
 
 	errChan := make(chan error)
 	eventChan := make(chan event)
@@ -182,8 +185,11 @@ func TestBTM_prepare(t *testing.T) {
 	startTime := time.Now()
 
 	b := newTestBTM()
-	os.Remove(b.getPrepairedFilePath())
-	_, err := b.getFilename()
+	err := os.Remove(b.getPrepairedFilePath())
+	if err != nil {
+		t.Error(err)
+	}
+	_, err = b.getFilename()
 	if err != nil {
 		t.Error(err)
 	}
@@ -216,19 +222,31 @@ func assertNoEventsGeneratedByBTM(t *testing.T, b *BTM) {
 
 func TestBTM_Run(t *testing.T) {
 	b := newTestBTM()
-	b.fraction = 1000
-	//os.Remove(b.getPrepairedFilePath())
+
+	err := os.Remove(b.getPrepairedFilePath())
+	if err != nil {
+		t.Error(err)
+	}
 	b.Run()
+	time.Sleep(10 * time.Millisecond)
 	totalE := 0
 	var prevTime time.Time
-	for e := range b.eventChan {
-		i := e.(event)
-		totalE += 1
-		assert.False(t, i.getTime().Before(prevTime))
-		prevTime = i.getTime()
-		if totalE == 4348 {
-			t.Log("OK! Found last event")
-			break
+
+LOOP:
+	for {
+		select {
+		case e := <-b.eventChan:
+			i := e.(event)
+			totalE += 1
+			assert.False(t, i.getTime().Before(prevTime))
+			prevTime = i.getTime()
+			if totalE == 1146 {
+				t.Log("OK! Found last event")
+				break LOOP
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Not found enough ticks")
+
 		}
 	}
 

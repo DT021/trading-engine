@@ -60,10 +60,10 @@ func TestEngine_Run(t *testing.T) {
 	/*err := os.Remove("log.txt")
 	if err != nil {
 		t.Fatal(err)
-	}*/
+	}
 	broker := newTestSimulatedBroker()
 	md := newTestBTM()
-	md.fraction = 1000
+
 	broker.fraction = 1000
 	strategyMap := make(map[string]IStrategy)
 
@@ -77,5 +77,5 @@ func TestEngine_Run(t *testing.T) {
 
 	engine.Run()
 
-	t.Log("Engine done!")
+	t.Log("Engine done!")*/
 }

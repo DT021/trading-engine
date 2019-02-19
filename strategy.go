@@ -58,7 +58,9 @@ type BasicStrategy struct {
 	lastEventTime      time.Time
 	strategy           IUserStrategy
 	mostRecentTime     time.Time
-	//orderMutex         *sync.Mutex
+	mut                *sync.Mutex
+	mutCandles         *sync.Mutex
+	mutTicks           *sync.Mutex
 }
 
 func (b *BasicStrategy) init() {
@@ -82,7 +84,10 @@ func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event, ord
 	b.eventChan = eventChan
 	b.errorsChan = errorsChan
 	b.connected = true
-	//b.orderMutex = orderMutex
+	b.mut = &sync.Mutex{}
+	b.mutCandles = &sync.Mutex{}
+	b.mutTicks = &sync.Mutex{}
+
 }
 
 //Strategy API calls
@@ -95,7 +100,6 @@ func (b *BasicStrategy) OnCandleOpen() {
 }
 
 func (b *BasicStrategy) OnTick(tick *marketdata.Tick) {
-	b.strategy.OnTick(b, tick)
 
 }
 
@@ -116,7 +120,7 @@ func (b *BasicStrategy) Position() int {
 
 }
 
-func (b *BasicStrategy) OrderIsConfirmed(ordId string) bool{
+func (b *BasicStrategy) OrderIsConfirmed(ordId string) bool {
 	return b.currentTrade.hasConfirmedOrderWithId(ordId)
 }
 
@@ -129,7 +133,7 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int) (s
 		State:  NewOrder,
 		Type:   LimitOrder,
 		Time:   b.mostRecentTime,
-		Id: fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
+		Id:     fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
 	}
 
 	err := b.newOrder(&order)
@@ -149,9 +153,9 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 		return errors.New("Order is not valid. ")
 	}
 	order.Id = b.Symbol + "|" + string(order.Side) + "|" + order.Id
-	//b.orderMutex.Lock()
+
 	err := b.currentTrade.putNewOrder(order)
-	//b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 		return err
@@ -168,11 +172,13 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 	if ordID == "" {
 		return errors.New("Order Id not specified. ")
 	}
-	//b.orderMutex.Lock()
+
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	if !b.currentTrade.hasConfirmedOrderWithId(ordID) {
 		return errors.New("Order ID not found in confirmed orders. ")
 	}
-	//b.orderMutex.Unlock()
 
 	cancelReq := OrderCancelRequestEvent{
 		OrdId:     ordID,
@@ -199,6 +205,9 @@ func (b *BasicStrategy) CandleIsValid(c *marketdata.Candle) bool {
 //Market data events
 
 func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	if e == nil {
 		return
 
@@ -208,17 +217,27 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 	}
 
 	b.putNewCandle(e.Candle)
+
+
 	if b.currentTrade.IsOpen() {
-		b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
+		err := b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
+		if err != nil {
+			go b.error(err)
+		}
 	}
 	if len(b.Candles) < b.NPeriods {
+
 		return
 	}
+
 	b.OnCandleClose()
 
 }
 
 func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	if e == nil {
 		return
 	}
@@ -237,6 +256,9 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 
 //onCandleHistoryHandler puts historical candles in current array of candles.
 func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	if e.Candles == nil {
 		return nil
 	}
@@ -279,6 +301,8 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	b.mut.Lock()
+	defer b.mut.Unlock()
 
 	if e == nil {
 		return
@@ -300,12 +324,15 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		return
 	}
 
-	b.OnTick(e.Tick)
+	b.strategy.OnTick(b, e.Tick)
 
 }
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
 func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	if e.Ticks == nil {
 		return nil
 	}
@@ -347,6 +374,8 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 
 //onOrderFillHandler updates current state of order and current position
 func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
+	b.mut.Lock()
+	defer b.mut.Unlock()
 
 	if e.Symbol != b.Symbol {
 		go b.error(errors.New("Mismatch symbols in fill event and position"))
@@ -359,9 +388,9 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	if math.IsNaN(e.Price) || e.Price <= 0 {
 		go b.error(errors.New("Price is NaN or less or equal to zero."))
 	}
-	//b.orderMutex.Lock()
+
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
-	//b.orderMutex.Unlock()
+
 	if err != nil {
 		go b.error(err)
 		return
@@ -378,9 +407,10 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 }
 
 func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
-	//b.orderMutex.Lock()
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	err := b.currentTrade.cancelOrder(e.OrdId)
-	//b.orderMutex.Unlock()
 
 	if err != nil {
 		go b.error(err)
@@ -390,9 +420,10 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 }
 
 func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
-	//b.orderMutex.Lock()
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	err := b.currentTrade.confirmOrder(e.OrdId)
-	//b.orderMutex.Unlock()
 
 	if err != nil {
 		go b.error(err)
@@ -401,9 +432,10 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 }
 
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
-	//b.orderMutex.Lock()
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
-	//b.orderMutex.Unlock()
 
 	if err != nil {
 		go b.error(err)
@@ -411,9 +443,10 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 }
 
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
-	//b.orderMutex.Lock()
+	b.mut.Lock()
+	defer b.mut.Unlock()
+
 	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
-	//b.orderMutex.Unlock()
 
 	if err != nil {
 		go b.error(err)
