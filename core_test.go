@@ -2,9 +2,11 @@ package engine
 
 import (
 	"alex/marketdata"
+	"bufio"
 	"os"
-	"sync"
+	"strings"
 	"testing"
+	"time"
 )
 
 type DummyStrategyWithLogic struct {
@@ -52,8 +54,30 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	bs.init()
 	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	bs.Connect(errorsChan, eventsChan, &sync.Mutex{})
+	bs.Connect(errorsChan, eventsChan)
 	return &bs
+
+}
+
+func findErrorsInLog() []string {
+	file, err := os.Open("log.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	var errors []string
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		meta := strings.Split(line, "|||")[0]
+		if strings.Contains(meta, "ERROR") {
+			errors = append(errors, line)
+		}
+	}
+
+	return errors
 
 }
 
@@ -62,21 +86,44 @@ func TestEngine_Run(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	broker := newTestSimulatedBroker()
-	md := newTestBTM()
 
-	broker.fraction = 1000
-	strategyMap := make(map[string]IStrategy)
+	count := 0
+	for {
+		count ++
+		if count > 10 {
+			break
+		}
 
-	for _, s := range md.Symbols {
-		st := newTestStrategyWithLogic(s)
-		strategyMap[s] = st
+		broker := newTestSimulatedBroker()
+		md := newTestBTM()
+
+		strategyMap := make(map[string]IStrategy)
+
+		for _, s := range md.Symbols {
+			st := newTestStrategyWithLogic(s)
+			strategyMap[s] = st
+
+		}
+
+		engine := NewEngine(strategyMap, broker, md, true)
+
+		engine.Run()
+
+		t.Logf("Engine #%v finished!", count)
+		errorsFound := findErrorsInLog()
+		if len(errorsFound) == 0 {
+			t.Logf("Engine #%v OK! No errors found", count)
+		} else {
+			t.Errorf("Found %v errors in Engine #%v", len(errorsFound), count)
+			for _, err := range errorsFound {
+				t.Error(err)
+			}
+			break
+		}
+
+		engine = nil
+		time.Sleep(10 * time.Microsecond)
 
 	}
 
-	engine := NewEngine(strategyMap, broker, md, true)
-
-	engine.Run()
-
-	t.Log("Engine done!")
 }

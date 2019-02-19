@@ -1,7 +1,5 @@
 package engine
 
-import "sync"
-
 /*import (
 	"alex/marketdata"
 	"github.com/stretchr/testify/assert"
@@ -14,12 +12,10 @@ import "sync"
 
 func newTestSimulatedBroker() *SimulatedBroker {
 	b := SimulatedBroker{delay: 1000}
-	b.fraction = 100
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
 	eventChan := make(chan event)
-	mut := &sync.Mutex{}
-	b.Connect(errChan, eventChan, mut)
+	b.Connect(errChan, eventChan)
 
 	return &b
 }/*

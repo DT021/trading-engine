@@ -10,7 +10,7 @@ import (
 )
 
 type IBroker interface {
-	Connect(errChan chan error, eventChan chan event, orderMutex *sync.Mutex)
+	Connect(errChan chan error, eventChan chan event)
 	OnNewOrder(e *NewOrderEvent)
 	OnCancelRequest(e *OrderCancelRequestEvent)
 	OnReplaceRequest(e *OrderReplaceRequestEvent)
@@ -41,7 +41,6 @@ type SimulatedBroker struct {
 	marketOpenUntilTime    TimeOfDay
 	marketCloseUntilTime   TimeOfDay
 	checkExecutionsOnTicks bool
-	fraction               int64
 	mpMutext               *sync.RWMutex
 }
 
@@ -49,7 +48,7 @@ func (b *SimulatedBroker) IsSimulated() bool {
 	return true
 }
 
-func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event, orderMutex *sync.Mutex) {
+func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event) {
 	if errChan == nil {
 		panic("Can't connect simulated broker. Error chan is nil. ")
 	}
@@ -396,7 +395,7 @@ func (b *SimulatedBroker) checkOnTickLimitAuction(order *SimBrokerOrder, tick *m
 			OrdId:     order.Id,
 			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), order.Symbol),
 		}
-		time.Sleep(time.Duration(b.delay/b.fraction) * time.Millisecond)
+
 		b.newEvent(&cancelE)
 	}
 

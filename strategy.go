@@ -28,14 +28,11 @@ type IStrategy interface {
 	onOrderReplacedHandler(e *OrderReplacedEvent)
 	onOrderRejectedHandler(e *OrderRejectedEvent)
 
-	//onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event
-
 	onTimerTickHandler(e *TimerTickEvent)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
 
-	Connect(errorsChan chan error, eventChan chan event, orderMutex *sync.Mutex)
-	//OnTick(tick *marketdata.Tick)
+	Connect(errorsChan chan error, eventChan chan event)
 }
 
 type IUserStrategy interface {
@@ -59,8 +56,6 @@ type BasicStrategy struct {
 	strategy           IUserStrategy
 	mostRecentTime     time.Time
 	mut                *sync.Mutex
-	mutCandles         *sync.Mutex
-	mutTicks           *sync.Mutex
 }
 
 func (b *BasicStrategy) init() {
@@ -72,7 +67,7 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event, orderMutex *sync.Mutex) {
+func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
 	if eventChan == nil {
 		panic("Can't connect stategy. Event channel is nil")
 	}
@@ -83,10 +78,8 @@ func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event, ord
 
 	b.eventChan = eventChan
 	b.errorsChan = errorsChan
-	b.connected = true
 	b.mut = &sync.Mutex{}
-	b.mutCandles = &sync.Mutex{}
-	b.mutTicks = &sync.Mutex{}
+	b.connected = true
 
 }
 
@@ -215,7 +208,6 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 
 	b.putNewCandle(e.Candle)
 
-
 	if b.currentTrade.IsOpen() {
 		err := b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
 		if err != nil {
@@ -244,7 +236,10 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 		b.lastCandleOpenTime = e.CandleTime
 	}
 	if b.currentTrade.IsOpen() {
-		b.currentTrade.updatePnL(e.Price, e.CandleTime)
+		err := b.currentTrade.updatePnL(e.Price, e.CandleTime)
+		if err != nil {
+			go b.error(err)
+		}
 	}
 
 	b.OnCandleOpen()
@@ -375,15 +370,15 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	defer b.mut.Unlock()
 
 	if e.Symbol != b.Symbol {
-		go b.error(errors.New("Mismatch symbols in fill event and position"))
+		go b.error(errors.New("Mismatch symbols in fill event and position. "))
 	}
 
 	if e.Qty <= 0 {
-		go b.error(errors.New("Execution Qty is zero or less."))
+		go b.error(errors.New("Execution Qty is zero or less. "))
 	}
 
 	if math.IsNaN(e.Price) || e.Price <= 0 {
-		go b.error(errors.New("Price is NaN or less or equal to zero."))
+		go b.error(errors.New("Price is NaN or less or equal to zero. "))
 	}
 
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
@@ -394,7 +389,7 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	}
 	if newPos != nil {
 		if b.currentTrade.Type != ClosedTrade {
-			go b.error(errors.New("New position opened, but previous is not closed"))
+			go b.error(errors.New("New position opened, but previous is not closed. "))
 			return
 		}
 		b.closedTrades = append(b.closedTrades, b.currentTrade)

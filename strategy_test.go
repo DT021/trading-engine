@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/stretchr/testify/assert"
 	"math"
-	"sync"
 	"testing"
 	"time"
 )
@@ -28,8 +27,8 @@ func newTestBasicStrategy() *BasicStrategy {
 	bs.init()
 	eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	mutex := &sync.Mutex{}
-	bs.Connect(errorsChan, eventsChan, mutex)
+
+	bs.Connect(errorsChan, eventsChan)
 	return &bs
 }
 

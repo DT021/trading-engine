@@ -5,13 +5,8 @@ import (
 	"log"
 	"os"
 	"sort"
-	"sync"
 	"time"
 )
-
-type EnginePart interface {
-	Connect(errChan chan error, eventChan chan event)
-}
 
 type Engine struct {
 	Symbols             []string
@@ -29,26 +24,25 @@ type Engine struct {
 	syncChan            chan event
 }
 
-func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, backtestMode bool) *Engine {
+func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode bool) *Engine {
 	brokerChan := make(chan event, 1)
 	strategyChan := make(chan event, 1)
 	mdChan := make(chan event, 1)
 	errChan := make(chan error)
-	mutex := &sync.Mutex{}
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		sp[k].Connect(errChan, strategyChan, mutex)
+		sp[k].Connect(errChan, strategyChan)
 	}
 
-	broker.Connect(errChan, brokerChan, mutex)
-	marketdata.Connect(errChan, mdChan)
-	marketdata.SetSymbols(symbols)
+	broker.Connect(errChan, brokerChan)
+	md.Connect(errChan, mdChan)
+	md.SetSymbols(symbols)
 	eng := Engine{
 		Symbols:             symbols,
 		BrokerConnector:     broker,
-		MarketDataConnector: marketdata,
+		MarketDataConnector: md,
 		StrategyMap:         sp,
 		brokerChan:          brokerChan,
 		strategiesChan:      strategyChan,
@@ -56,7 +50,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, 
 		mdChan:              mdChan,
 	}
 
-	eng.backtestMode = backtestMode
+	eng.backtestMode = mode
 	eng.prepareLogger()
 	eng.syncChan = make(chan event)
 
@@ -74,7 +68,6 @@ func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
 }
 
 func (c *Engine) prepareLogger() {
-	os.Remove("log.txt") // Todo может убрать потом
 	f, err := os.OpenFile("log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
@@ -184,16 +177,13 @@ func (c *Engine) syncChans() {
 	var sigEvent event
 	var ordEvent event
 
-	var prevOrdEvent event
-
 EVENT_LOOP:
 	for {
 		if sigEvent == nil {
 			select {
 			case e := <-c.strategiesChan:
 				sigEvent = e
-				fmt.Printf("Got signal: %v\n", e.getTime())
-			case <-time.After(100 * time.Microsecond):
+			case <-time.After(15 * time.Microsecond):
 				sigEvent = nil
 			}
 
@@ -201,17 +191,8 @@ EVENT_LOOP:
 		if ordEvent == nil {
 			select {
 			case e := <-c.brokerChan:
-				fmt.Println(fmt.Sprintf("%v %v ", e.getName(), e.getTime()))
 				ordEvent = e
-				fmt.Printf("Got order event: %v\n", e.getTime())
-				if prevOrdEvent != nil {
-					if ordEvent.getTime().Before(prevOrdEvent.getTime()) {
-						fmt.Println("Shit")
-					}
-				}
-
-				prevOrdEvent = ordEvent
-			case <-time.After(100 * time.Microsecond):
+			case <-time.After(15 * time.Microsecond):
 				ordEvent = nil
 			}
 		}
@@ -219,13 +200,12 @@ EVENT_LOOP:
 			select {
 			case e := <-c.mdChan:
 				mdEvent = e
-				fmt.Printf("Got MD: %v\n", e.getTime())
 			default:
 				mdEvent = nil
 			}
 		}
 
-		awaitingEvents := []event{}
+		var awaitingEvents []event
 	INT_LOOP:
 		for _, e := range []event{mdEvent, sigEvent, ordEvent} {
 			if e == nil {
@@ -238,18 +218,13 @@ EVENT_LOOP:
 		}
 
 		first := awaitingEvents[0]
-		if len(awaitingEvents)>1{
+		if len(awaitingEvents) > 1 {
 			sort.SliceStable(awaitingEvents, func(i, j int) bool {
 				return awaitingEvents[i].getTime().Unix() < awaitingEvents[j].getTime().Unix()
 			})
 
 			first = awaitingEvents[0]
 		}
-
-		if len(awaitingEvents)>1{
-			fmt.Println("")
-		}
-
 
 		c.syncChan <- first
 
