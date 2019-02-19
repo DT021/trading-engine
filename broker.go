@@ -42,7 +42,7 @@ type SimulatedBroker struct {
 	marketCloseUntilTime   TimeOfDay
 	checkExecutionsOnTicks bool
 	fraction               int64
-	mpMutext               *sync.Mutex
+	mpMutext               *sync.RWMutex
 }
 
 func (b *SimulatedBroker) IsSimulated() bool {
@@ -66,7 +66,7 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event, orde
 
 	b.allOrders = make(map[string]*SimBrokerOrder)
 
-	b.mpMutext = orderMutex
+	b.mpMutext = &sync.RWMutex{}
 
 }
 
@@ -79,10 +79,10 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 		rejectEvent := OrderRejectedEvent{
 			OrdId:     e.LinkedOrder.Id,
 			Reason:    r,
-			BaseEvent: be(e.Time, e.Symbol),
+			BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 		}
-		b.newEvent(&rejectEvent)
 		b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder, 0}
+		b.newEvent(&rejectEvent)
 
 		return
 	}
@@ -92,13 +92,12 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 		rejectEvent := OrderRejectedEvent{
 			OrdId:     e.LinkedOrder.Id,
 			Reason:    r,
-			BaseEvent: be(e.Time, e.Symbol),
+			BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 		}
 		b.newEvent(&rejectEvent)
 
 		return
 	}
-
 
 	b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, ConfirmedOrder, 0}
 
@@ -107,13 +106,14 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 		BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
 
-	go func (){
-		b.newEvent(&confEvent)
-	}()
+	b.newEvent(&confEvent)
 
 }
 
 func (b *SimulatedBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
+	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
+
 	err := b.validateOrderModificationRequest(e.OrdId, "cancel")
 	if err != nil {
 		go b.newError(err)
@@ -151,11 +151,13 @@ func (b *SimulatedBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
 		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
 
-	b.newEvent(&replacedEvent)
+	go b.newEvent(&replacedEvent)
 
 }
 
 func (b *SimulatedBroker) validateOrderModificationRequest(ordId string, modType string) error {
+
+
 	if _, ok := b.confirmedOrders[ordId]; !ok {
 		err := ErrOrderNotFoundInConfirmedMap{
 			OrdId:   ordId,
@@ -212,17 +214,31 @@ func (b *SimulatedBroker) OnTick(tick *marketdata.Tick) {
 		return
 
 	}
+	b.mpMutext.Lock()
 
 	if len(b.confirmedOrders) == 0 {
+		b.mpMutext.Unlock()
 		return
 	}
 
+	var genEvents []event
+
 	for _, o := range b.confirmedOrders {
 		if o.Symbol == tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-			b.checkOrderExecutionOnTick(o, tick)
+			e := b.checkOrderExecutionOnTick(o, tick)
+			if e != nil {
+				genEvents = append(genEvents, e)
+			}
 		}
-
 	}
+
+	if len(genEvents) > 0 {
+		for _, e := range genEvents {
+			b.newEvent(e)
+		}
+	}
+
+	b.mpMutext.Unlock()
 
 }
 
@@ -241,37 +257,37 @@ func (b *SimulatedBroker) tickIsValid(tick *marketdata.Tick) bool {
 	return true
 }
 
-func (b *SimulatedBroker) checkOrderExecutionOnTick(orderSim *SimBrokerOrder, tick *marketdata.Tick) {
+func (b *SimulatedBroker) checkOrderExecutionOnTick(orderSim *SimBrokerOrder, tick *marketdata.Tick) event {
 
 	err := b.validateOrderForExecution(orderSim, orderSim.Type)
 	if err != nil {
 		go b.newError(err)
-		return
+		return nil
 	}
 
 	switch orderSim.Type {
 
 	case MarketOrder:
 		b.checkOnTickMarket(orderSim, tick)
-		return
+		return nil
 	case LimitOrder:
-		b.checkOnTickLimit(orderSim, tick)
-		return
+		e := b.checkOnTickLimit(orderSim, tick)
+		return e
 	case StopOrder:
 		b.checkOnTickStop(orderSim, tick)
-		return
+		return nil
 	case LimitOnClose:
 		b.checkOnTickLOC(orderSim, tick)
-		return
+		return nil
 	case LimitOnOpen:
 		b.checkOnTickLOO(orderSim, tick)
-		return
+		return nil
 	case MarketOnOpen:
 		b.checkOnTickMOO(orderSim, tick)
-		return
+		return nil
 	case MarketOnClose:
 		b.checkOnTickMOC(orderSim, tick)
-		return
+		return nil
 	default:
 		err := ErrUnknownOrderType{
 			OrdId:   orderSim.Id,
@@ -280,6 +296,8 @@ func (b *SimulatedBroker) checkOrderExecutionOnTick(orderSim *SimBrokerOrder, ti
 		}
 		go b.newError(&err)
 	}
+
+	return nil
 
 }
 
@@ -427,20 +445,20 @@ func (b *SimulatedBroker) checkOnTickMOC(order *SimBrokerOrder, tick *marketdata
 
 }
 
-func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketdata.Tick) {
+func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketdata.Tick) event {
 
 	if !tick.HasTrade {
-		return
+		return nil
 	}
 
 	if math.IsNaN(tick.LastPrice) {
-		return
+		return nil
 	}
 
 	lvsQty := order.Qty - order.BrokerExecQty
 	if lvsQty <= 0 {
 		go b.newError(errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. "))
-		return
+		return nil
 	}
 	switch order.Side {
 	case OrderSell:
@@ -457,8 +475,8 @@ func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketda
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			b.newEvent(&fillE)
-			return
+			//go b.newEvent(&fillE)
+			return &fillE
 
 		} else {
 			if tick.LastPrice == order.Price && !b.strictLimitOrders {
@@ -474,10 +492,10 @@ func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketda
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 
-				b.newEvent(&fillE)
-				return
+				//go b.newEvent(&fillE)
+				return &fillE
 			} else {
-				return
+				return nil
 			}
 		}
 
@@ -495,8 +513,8 @@ func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketda
 				BaseEvent: be(tick.Datetime, order.Symbol),
 			}
 
-			b.newEvent(&fillE)
-			return
+			//go b.newEvent(&fillE)
+			return &fillE
 
 		} else {
 			if tick.LastPrice == order.Price && !b.strictLimitOrders {
@@ -512,15 +530,15 @@ func (b *SimulatedBroker) checkOnTickLimit(order *SimBrokerOrder, tick *marketda
 					BaseEvent: be(tick.Datetime, order.Symbol),
 				}
 
-				b.newEvent(&fillE)
-				return
+				//go b.newEvent(&fillE)
+				return &fillE
 			} else {
-				return
+				return nil
 			}
 		}
 	default:
 		go b.newError(errors.New("Sim broker: can't check fill for order. Unknown side. "))
-		return
+		return nil
 
 	}
 
@@ -700,10 +718,6 @@ func (b *SimulatedBroker) newEvent(e event) {
 	if b.eventChan == nil {
 		panic("Simulated broker event chan is nil")
 	}
-	time.Sleep(time.Duration(b.delay*1000000/b.fraction-100) * time.Nanosecond)
-
-	b.mpMutext.Lock()
-	defer b.mpMutext.Unlock()
 
 	switch i := e.(type) {
 
@@ -725,7 +739,6 @@ func (b *SimulatedBroker) newEvent(e event) {
 		ord.BrokerState = CanceledOrder
 		delete(b.confirmedOrders, i.OrdId)
 
-
 	case *OrderFillEvent:
 		ord, ok := b.confirmedOrders[i.OrdId]
 		if !ok {
@@ -739,7 +752,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 			delete(b.confirmedOrders, i.OrdId)
 			ord.BrokerState = FilledOrder
 		} else {
-			if execQty > ord.Qty - ord.BrokerExecQty{
+			if execQty > ord.Qty-ord.BrokerExecQty {
 				panic("Large qty")
 			}
 			ord.BrokerState = PartialFilledOrder
@@ -756,7 +769,6 @@ func (b *SimulatedBroker) newEvent(e event) {
 		b.rejectedOrders[i.OrdId] = ord
 
 	}
-
 
 	go func() {
 		b.eventChan <- e

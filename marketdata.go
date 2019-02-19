@@ -217,18 +217,13 @@ func (m *BTM) genTickEvents() {
 			continue
 		}
 
-		delta := tick.Datetime.Sub(prevTick.Datetime)
+
 		e := NewTickEvent{
 			Tick:      prevTick,
 			BaseEvent: BaseEvent{Time: prevTick.Datetime, Symbol: prevTick.Symbol},
 		}
 
 		m.newEvent(&e)
-		if delta.Nanoseconds()/1000000 < 500 {
-			time.Sleep(time.Duration(delta.Nanoseconds()/(m.fraction)) * time.Nanosecond)
-		} else {
-			time.Sleep(7 * time.Millisecond)
-		}
 
 		prevTick = tick
 

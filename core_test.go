@@ -7,7 +7,8 @@ import (
 )
 
 type DummyStrategyWithLogic struct {
-	idToCancel string
+	idToCancel  string
+	alreadySent bool
 }
 
 func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
@@ -19,13 +20,14 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 	}
 
-	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" {
-		price := tick.LastPrice - 0.2
+	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySent {
+		price := tick.LastPrice * 0.95
 		ordId, err := b.NewLimitOrder(price, OrderBuy, 200)
 		if err != nil {
 			panic(err)
 		}
 		d.idToCancel = ordId
+		d.alreadySent = true
 
 	}
 
@@ -35,6 +37,7 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 			panic(err)
 		}
 		d.idToCancel = ""
+
 	}
 }
 
@@ -52,8 +55,6 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	return &bs
 
 }
-
-
 
 func TestEngine_Run(t *testing.T) {
 	/*err := os.Remove("log.txt")

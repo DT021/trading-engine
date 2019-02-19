@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"sync"
 	"time"
 )
@@ -17,28 +18,31 @@ type Engine struct {
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]IStrategy
-	eventsChan          chan event
+	brokerChan          chan event
+	strategiesChan      chan event
 	errChan             chan error
 	mdChan              chan event
 	lastTime            time.Time
 	prevEvent           event
 	log                 log.Logger
 	backtestMode        bool
+	syncChan            chan event
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, backtestMode bool) *Engine {
-	eventChan := make(chan event)
-	mdChan := make(chan event)
+	brokerChan := make(chan event, 1)
+	strategyChan := make(chan event, 1)
+	mdChan := make(chan event, 1)
 	errChan := make(chan error)
 	mutex := &sync.Mutex{}
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		sp[k].Connect(errChan, eventChan, mutex)
+		sp[k].Connect(errChan, strategyChan, mutex)
 	}
 
-	broker.Connect(errChan, eventChan, mutex)
+	broker.Connect(errChan, brokerChan, mutex)
 	marketdata.Connect(errChan, mdChan)
 	marketdata.SetSymbols(symbols)
 	eng := Engine{
@@ -46,13 +50,15 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, marketdata IMarketData, 
 		BrokerConnector:     broker,
 		MarketDataConnector: marketdata,
 		StrategyMap:         sp,
-		eventsChan:          eventChan,
+		brokerChan:          brokerChan,
+		strategiesChan:      strategyChan,
 		errChan:             errChan,
 		mdChan:              mdChan,
 	}
 
 	eng.backtestMode = backtestMode
 	eng.prepareLogger()
+	eng.syncChan = make(chan event)
 
 	return &eng
 }
@@ -173,12 +179,107 @@ func (c *Engine) shutDown() {
 
 }
 
+func (c *Engine) syncChans() {
+	var mdEvent event
+	var sigEvent event
+	var ordEvent event
+
+	var prevOrdEvent event
+
+EVENT_LOOP:
+	for {
+		if sigEvent == nil {
+			select {
+			case e := <-c.strategiesChan:
+				sigEvent = e
+				fmt.Printf("Got signal: %v\n", e.getTime())
+			case <-time.After(100 * time.Microsecond):
+				sigEvent = nil
+			}
+
+		}
+		if ordEvent == nil {
+			select {
+			case e := <-c.brokerChan:
+				fmt.Println(fmt.Sprintf("%v %v ", e.getName(), e.getTime()))
+				ordEvent = e
+				fmt.Printf("Got order event: %v\n", e.getTime())
+				if prevOrdEvent != nil {
+					if ordEvent.getTime().Before(prevOrdEvent.getTime()) {
+						fmt.Println("Shit")
+					}
+				}
+
+				prevOrdEvent = ordEvent
+			case <-time.After(100 * time.Microsecond):
+				ordEvent = nil
+			}
+		}
+		if mdEvent == nil {
+			select {
+			case e := <-c.mdChan:
+				mdEvent = e
+				fmt.Printf("Got MD: %v\n", e.getTime())
+			default:
+				mdEvent = nil
+			}
+		}
+
+		awaitingEvents := []event{}
+	INT_LOOP:
+		for _, e := range []event{mdEvent, sigEvent, ordEvent} {
+			if e == nil {
+				continue INT_LOOP
+			}
+			awaitingEvents = append(awaitingEvents, e)
+		}
+		if len(awaitingEvents) == 0 {
+			continue EVENT_LOOP
+		}
+
+		first := awaitingEvents[0]
+		if len(awaitingEvents)>1{
+			sort.SliceStable(awaitingEvents, func(i, j int) bool {
+				return awaitingEvents[i].getTime().Unix() < awaitingEvents[j].getTime().Unix()
+			})
+
+			first = awaitingEvents[0]
+		}
+
+		if len(awaitingEvents)>1{
+			fmt.Println("")
+		}
+
+
+		c.syncChan <- first
+
+		switch first.(type) {
+		case *EndOfDataEvent:
+			break EVENT_LOOP
+
+		}
+
+		if first == sigEvent {
+			sigEvent = nil
+		}
+
+		if first == mdEvent {
+			mdEvent = nil
+		}
+
+		if first == ordEvent {
+			ordEvent = nil
+		}
+	}
+}
+
 func (c *Engine) Run() {
 	c.MarketDataConnector.Run()
+	go c.syncChans()
 EVENT_LOOP:
 	for {
 		select {
-		case e := <-c.mdChan:
+		case e := <-c.syncChan:
 			if c.backtestMode {
 				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
 				c.log.Print(msg)
@@ -206,35 +307,6 @@ EVENT_LOOP:
 			case *EndOfDataEvent:
 				c.eEndOfData(i)
 				break EVENT_LOOP
-			default:
-				panic("Unexpected event")
-
-			}
-		case e := <-c.eventsChan:
-			if c.backtestMode {
-				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
-				c.log.Print(msg)
-				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
-					out := fmt.Sprintf("ERROR|||Events is before first time:  %v, %v",
-						e.getName(), e.getTime())
-					panic(out)
-				}
-				t := e.getTime()
-				if t.Before(c.lastTime) {
-					delta := c.lastTime.Sub(t).Seconds()
-					if delta > 1 {
-						out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
-							c.prevEvent.getTime(), e.getName(), e.getTime())
-						c.log.Print(out)
-					}
-
-				}
-				c.lastTime = t
-				c.prevEvent = e
-			}
-
-			switch i := e.(type) {
-
 			case *NewOrderEvent:
 				c.eNewOrder(i)
 			case *OrderConfirmationEvent:
@@ -255,6 +327,7 @@ EVENT_LOOP:
 				panic("Unexpected event in events chan")
 
 			}
+
 		case e := <-c.errChan:
 			go c.logError(e)
 			if c.errorIsCritical(e) {
