@@ -2,6 +2,7 @@ package engine
 
 import (
 	"alex/marketdata"
+	"os"
 	"sync"
 	"testing"
 )
@@ -57,7 +58,7 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 }
 
 func TestEngine_Run(t *testing.T) {
-	/*err := os.Remove("log.txt")
+	err := os.Remove("log.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,5 +78,5 @@ func TestEngine_Run(t *testing.T) {
 
 	engine.Run()
 
-	t.Log("Engine done!")*/
+	t.Log("Engine done!")
 }

@@ -173,9 +173,6 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 		return errors.New("Order Id not specified. ")
 	}
 
-	b.mut.Lock()
-	defer b.mut.Unlock()
-
 	if !b.currentTrade.hasConfirmedOrderWithId(ordID) {
 		return errors.New("Order ID not found in confirmed orders. ")
 	}
