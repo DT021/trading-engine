@@ -16,7 +16,7 @@ const (
 	OrderBuy  OrderSide = "B"
 	OrderSell OrderSide = "S"
 
-	NewOrder           OrderState = "NewOrder"
+	NewOrder           OrderState = "newOrder"
 	ConfirmedOrder     OrderState = "ConfirmedOrder"
 	FilledOrder        OrderState = "FilledOrder"
 	PartialFilledOrder OrderState = "PartialFilledOrder"
@@ -152,7 +152,7 @@ func (o *Order) addExecution(price float64, qty int) error {
 
 func (o *Order) reject(reason string) error {
 	if o.State != NewOrder {
-		return errors.New("Can't reject order. It's not in status NewOrder")
+		return errors.New("Can't reject order. It's not in status newOrder")
 	}
 	if o.ExecQty > 0 {
 		return errors.New("Can't reject order. Already has executed qty. Status should be PartialFilled")
@@ -177,7 +177,7 @@ func (o *Order) cancel() error {
 
 func (o *Order) confirm() error {
 	if o.State != NewOrder {
-		return errors.New("Can't confirm order. State is not NewOrder")
+		return errors.New("Can't confirm order. State is not newOrder")
 	}
 	o.State = ConfirmedOrder
 
@@ -246,7 +246,7 @@ type Trade struct {
 	Id              string
 }
 
-func (t *Trade) hasOrderWithID(ordID string) bool {
+func (t *Trade) hasConfirmedOrderWithId(ordID string) bool {
 	for _, v := range t.ConfirmedOrders {
 		if v.Id == ordID {
 			return true
@@ -304,7 +304,7 @@ func (t *Trade) putNewOrder(o *Order) error {
 	return nil
 }
 
-//confirmOrder confirms order by ID if it's in NewOrder map. Order moves from NewOrder map to ConfirmedOrders map
+//confirmOrder confirms order by ID if it's in newOrder map. Order moves from newOrder map to ConfirmedOrders map
 //it returns error if ID not in NewOrders map and if ID is already in ConfirmedOrders map
 func (t *Trade) confirmOrder(id string) error {
 

@@ -373,7 +373,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test new order with wrong params")
 	{
 		wrongOrder := newTestOrder(math.NaN(), OrderBuy, 100, "")
-		err := st.NewOrder(wrongOrder)
+		err := st.newOrder(wrongOrder)
 
 		assertStrategyHasNoEvents(t, st)
 
@@ -383,7 +383,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 		wrongOrder.Price = 10
 		wrongOrder.Symbol = "Test2"
 
-		err = st.NewOrder(wrongOrder)
+		err = st.newOrder(wrongOrder)
 		assertStrategyHasNoEvents(t, st)
 
 		assert.NotNil(t, err)
@@ -393,7 +393,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test new order")
 	{
 
-		err := st.NewOrder(ord)
+		err := st.newOrder(ord)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
@@ -459,7 +459,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test reject event")
 	{
 		ordToReject := newTestOrder(5, OrderSell, 250, "")
-		err := st.NewOrder(ordToReject)
+		err := st.newOrder(ordToReject)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
@@ -530,7 +530,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test replace and cancel order with wrong status")
 	{
 		ordTest := newTestOrder(5, OrderSell, 250, "someID")
-		err := st.NewOrder(ordTest)
+		err := st.newOrder(ordTest)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		assert.Nil(t, err)
@@ -609,7 +609,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(10, OrderBuy, 100, "id1")
 
-		st.NewOrder(order)
+		st.newOrder(order)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 
@@ -640,7 +640,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	t.Log("Strategy: Add BUY order to existing LONG and fill it by parts")
 	{
 		order := newTestOrder(12, OrderBuy, 200, "id2")
-		err := st.NewOrder(order)
+		err := st.newOrder(order)
 		if err != nil {
 			t.Error(err)
 		}
@@ -761,7 +761,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		order := newTestOrder(10, OrderSell, 100, "ids1")
 
 		prevOpenPrice := st.currentTrade.OpenPrice
-		st.NewOrder(order)
+		st.newOrder(order)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 
@@ -798,7 +798,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		//Add another order and execute it. First sell order still in status partial fill
 		//*****************************
 		order2 := newTestOrder(15.23, OrderSell, 100, "ids2")
-		err := st.NewOrder(order2)
+		err := st.newOrder(order2)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 
@@ -847,7 +847,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	t.Log("Strategy: Close current LONG position and reverse with single order and partial fills")
 	{
 		order := newTestOrder(18.16, OrderSell, 500, "ids3")
-		err := st.NewOrder(order)
+		err := st.newOrder(order)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		if err != nil {
@@ -904,7 +904,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	t.Log("Strategy: Add to current open SHORT position")
 	{
 		order := newTestOrder(20.0, OrderSell, 100, "ids5")
-		st.NewOrder(order)
+		st.newOrder(order)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
@@ -924,7 +924,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	t.Log("Strategy: Close current SHORT position. New FLAT position without orders expected")
 	{
 		order := newTestOrder(19.03, OrderBuy, 450, "idb1")
-		st.NewOrder(order)
+		st.newOrder(order)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
@@ -964,7 +964,7 @@ func TestBasicStrategy_CancelOrder(t *testing.T) {
 	t.Log("Test cancel order request. Normal mode")
 	{
 		order := newTestOrder(10, OrderSell, 1000, "554")
-		st.NewOrder(order)
+		st.newOrder(order)
 		assertNoErrorsGeneratedByEvents(t, st)
 		assertStrategyHasNewOrderEvent(t, st)
 		assertStrategyHasNoEvents(t, st)

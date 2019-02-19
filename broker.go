@@ -71,6 +71,8 @@ func (b *SimulatedBroker) Connect(errChan chan error, eventChan chan event, orde
 }
 
 func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
+	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
 
 	if !e.LinkedOrder.isValid() {
 		r := "Sim Broker: can't confirm order. Order is not valid"
@@ -80,8 +82,8 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 			BaseEvent: be(e.Time, e.Symbol),
 		}
 		b.newEvent(&rejectEvent)
-		b.rejectedOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder, 0}
 		b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder, 0}
+
 		return
 	}
 
@@ -93,10 +95,10 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 			BaseEvent: be(e.Time, e.Symbol),
 		}
 		b.newEvent(&rejectEvent)
-		b.rejectedOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, RejectedOrder, 0}
 
 		return
 	}
+
 
 	b.allOrders[e.LinkedOrder.Id] = &SimBrokerOrder{e.LinkedOrder, ConfirmedOrder, 0}
 
@@ -105,7 +107,9 @@ func (b *SimulatedBroker) OnNewOrder(e *NewOrderEvent) {
 		BaseEvent: be(e.LinkedOrder.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
 
-	b.newEvent(&confEvent)
+	go func (){
+		b.newEvent(&confEvent)
+	}()
 
 }
 
@@ -696,11 +700,14 @@ func (b *SimulatedBroker) newEvent(e event) {
 	if b.eventChan == nil {
 		panic("Simulated broker event chan is nil")
 	}
+	time.Sleep(time.Duration(b.delay*1000000/b.fraction-100) * time.Nanosecond)
+
+	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
 
 	switch i := e.(type) {
 
 	case *OrderConfirmationEvent:
-		b.mpMutext.Lock()
 		ord, ok := b.allOrders[i.OrdId]
 		if !ok {
 			panic("Confirmation of not existing order")
@@ -708,10 +715,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 		ord.BrokerState = ConfirmedOrder
 		b.confirmedOrders[i.OrdId] = ord
 
-		b.mpMutext.Unlock()
-
 	case *OrderCancelEvent:
-		b.mpMutext.Lock()
 		ord, ok := b.confirmedOrders[i.OrdId]
 		if !ok {
 			msg := fmt.Sprintf("Can't find order %v in confirmed map to cancel it. ", i.OrdId)
@@ -720,7 +724,7 @@ func (b *SimulatedBroker) newEvent(e event) {
 		b.canceledOrders[i.OrdId] = ord
 		ord.BrokerState = CanceledOrder
 		delete(b.confirmedOrders, i.OrdId)
-		b.mpMutext.Unlock()
+
 
 	case *OrderFillEvent:
 		ord, ok := b.confirmedOrders[i.OrdId]
@@ -740,12 +744,20 @@ func (b *SimulatedBroker) newEvent(e event) {
 			}
 			ord.BrokerState = PartialFilledOrder
 		}
-		fmt.Println(ord.BrokerState)
+
 		ord.BrokerExecQty += i.Qty
+
+	case *OrderRejectedEvent:
+		ord, ok := b.allOrders[i.OrdId]
+		if !ok {
+			panic("Confirmation of not existing order")
+		}
+		ord.BrokerState = RejectedOrder
+		b.rejectedOrders[i.OrdId] = ord
 
 	}
 
-	time.Sleep(time.Duration(b.delay*1000000/b.fraction) * time.Nanosecond)
+
 	go func() {
 		b.eventChan <- e
 	}()

@@ -157,7 +157,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 
-		//o = Order{Symbol: "Test2", Id: "55", State: NewOrder}
+		//o = Order{Symbol: "Test2", Id: "55", State: newOrder}
 		o = newTestOrder(20, OrderBuy, 100, "55")
 		o.Symbol = "Test2"
 		trade.putNewOrder(o)

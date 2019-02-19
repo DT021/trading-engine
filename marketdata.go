@@ -21,10 +21,7 @@ type IMarketData interface {
 	GetFirstTime() time.Time
 }
 
-type ITimerEventProducer interface {
-	Next()
-	Pop() *event
-}
+
 
 type BTM struct {
 	Symbols          []string
@@ -230,7 +227,7 @@ func (m *BTM) genTickEvents() {
 		if delta.Nanoseconds()/1000000 < 500 {
 			time.Sleep(time.Duration(delta.Nanoseconds()/(m.fraction)) * time.Nanosecond)
 		} else {
-			time.Sleep(time.Duration(800*1000002/m.fraction) * time.Nanosecond)
+			time.Sleep(7 * time.Millisecond)
 		}
 
 		prevTick = tick

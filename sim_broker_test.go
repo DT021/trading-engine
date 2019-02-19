@@ -732,7 +732,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 		{
 			order := newTestOrder(math.NaN(), OrderSell, 100, "Market7")
 			order.Type = MarketOrder
-			order.State = NewOrder
+			order.State = newOrder
 			assert.True(t, order.isValid())
 			b.confirmedOrders[order.Id] = order
 
@@ -926,7 +926,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 
 		assert.True(t, order.isValid())
 
-		order.State = NewOrder
+		order.State = newOrder
 		assert.True(t, order.isValid())
 
 		tick := marketdata.Tick{
@@ -939,7 +939,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 		}
 
 		b.checkOnTickLimit(order, &tick)
-		assert.Equal(t, NewOrder, order.State)
+		assert.Equal(t, newOrder, order.State)
 
 		assertNoEventsGeneratedByBroker(t, b)
 		err := getTestSimBrokerGeneratedErrors(b)

@@ -215,20 +215,25 @@ EVENT_LOOP:
 				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
 				c.log.Print(msg)
 				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
-					panic(e)
+					out := fmt.Sprintf("ERROR|||Events is before first time:  %v, %v",
+						e.getName(), e.getTime())
+					panic(out)
 				}
 				t := e.getTime()
 				if t.Before(c.lastTime) {
-					out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
-						c.prevEvent.getTime(), e.getName(), e.getTime())
-					c.log.Print(out)
+					delta := c.lastTime.Sub(t).Seconds()
+					if delta > 1 {
+						out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
+							c.prevEvent.getTime(), e.getName(), e.getTime())
+						c.log.Print(out)
+					}
+
 				}
 				c.lastTime = t
 				c.prevEvent = e
 			}
 
 			switch i := e.(type) {
-
 
 			case *NewOrderEvent:
 				c.eNewOrder(i)

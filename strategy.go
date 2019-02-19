@@ -3,7 +3,9 @@ package engine
 import (
 	"alex/marketdata"
 	"errors"
+	"fmt"
 	"math"
+	"math/rand"
 	"sort"
 	"sync"
 	"time"
@@ -114,7 +116,11 @@ func (b *BasicStrategy) Position() int {
 
 }
 
-func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int) error {
+func (b *BasicStrategy) OrderIsConfirmed(ordId string) bool{
+	return b.currentTrade.hasConfirmedOrderWithId(ordId)
+}
+
+func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int) (string, error) {
 	order := Order{
 		Side:   side,
 		Qty:    qty,
@@ -123,14 +129,15 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int) er
 		State:  NewOrder,
 		Type:   LimitOrder,
 		Time:   b.mostRecentTime,
+		Id: fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
 	}
 
-	err := b.NewOrder(&order)
-	return err
+	err := b.newOrder(&order)
+	return order.Id, err
 
 }
 
-func (b *BasicStrategy) NewOrder(order *Order) error {
+func (b *BasicStrategy) newOrder(order *Order) error {
 	if order.Symbol != b.Symbol {
 		return errors.New("Can't put new order. Strategy symbol and order symbol are different. ")
 	}
@@ -162,14 +169,14 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 		return errors.New("Order Id not specified. ")
 	}
 	b.orderMutex.Lock()
-	if !b.currentTrade.hasOrderWithID(ordID) {
+	if !b.currentTrade.hasConfirmedOrderWithId(ordID) {
 		return errors.New("Order ID not found in confirmed orders. ")
 	}
 	b.orderMutex.Unlock()
 
 	cancelReq := OrderCancelRequestEvent{
 		OrdId:     ordID,
-		BaseEvent: be(b.lastEventTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
+		BaseEvent: be(b.mostRecentTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
 	}
 
 	go b.newEvent(&cancelReq)

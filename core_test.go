@@ -2,22 +2,39 @@ package engine
 
 import (
 	"alex/marketdata"
-	"os"
 	"sync"
 	"testing"
 )
 
 type DummyStrategyWithLogic struct {
+	idToCancel string
 }
 
 func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
-
 	if len(b.currentTrade.AllOrdersIDMap) == 0 && tick.LastPrice > 20 {
 		price := tick.LastPrice - 0.5
-		err := b.NewLimitOrder(price, OrderSell, 100)
+		_, err := b.NewLimitOrder(price, OrderSell, 100)
 		if err != nil {
 			panic(err)
 		}
+	}
+
+	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" {
+		price := tick.LastPrice - 0.2
+		ordId, err := b.NewLimitOrder(price, OrderBuy, 200)
+		if err != nil {
+			panic(err)
+		}
+		d.idToCancel = ordId
+
+	}
+
+	if d.idToCancel != "" && b.OrderIsConfirmed(d.idToCancel) {
+		err := b.CancelOrder(d.idToCancel)
+		if err != nil {
+			panic(err)
+		}
+		d.idToCancel = ""
 	}
 }
 
@@ -35,11 +52,14 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	return &bs
 
 }
-/*Что происходит в брокере - падает эвент, мы генерим че-то и параллельно падает еще эвент,
-мапы и ордера не успевают апдейтнуться*/
+
+
 
 func TestEngine_Run(t *testing.T) {
-	os.Remove("log.txt")
+	/*err := os.Remove("log.txt")
+	if err != nil {
+		t.Fatal(err)
+	}*/
 	broker := newTestSimulatedBroker()
 	md := newTestBTM()
 	md.fraction = 1000
