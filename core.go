@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"reflect"
 	"time"
 )
 
@@ -13,8 +12,7 @@ type Engine struct {
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]IStrategy
-	brokerChans         map[string]chan event
-	strategiesChan      map[string]chan event
+	terminationChan     chan struct{}
 	errChan             chan error
 	mdChan              chan event
 
@@ -25,19 +23,27 @@ type Engine struct {
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode bool) *Engine {
 
-	strategyChan := make(map[string]chan event)
 	mdChan := make(chan event)
 	errChan := make(chan error)
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		c := make(chan event)
-		sp[k].Connect(errChan, c)
-		strategyChan[k] = c
 	}
 
 	broker.Connect(errChan, symbols)
+
+	for _, k := range symbols {
+
+		brokChan := make(chan event)
+		requestChan := make(chan event)
+		readyMdChan := make(chan struct{})
+		brokNotifyChan := make(chan *BrokerNotifyEvent)
+		sp[k].Connect(errChan, brokChan, requestChan, brokNotifyChan, readyMdChan)
+		broker.SetSymbolChannels(k, requestChan, brokChan, readyMdChan, brokNotifyChan)
+
+	}
+
 	md.Connect(errChan, mdChan)
 	md.SetSymbols(symbols)
 	eng := Engine{
@@ -45,8 +51,6 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 		BrokerConnector:     broker,
 		MarketDataConnector: md,
 		StrategyMap:         sp,
-		brokerChans:         broker.GetAllChannelsMap(),
-		strategiesChan:      strategyChan,
 		errChan:             errChan,
 		mdChan:              mdChan,
 	}
@@ -225,108 +229,31 @@ func (c *Engine) genEventAfterExpired(w *EngineWaiter) {
 
 }
 
+func (c *Engine) runStrategies() {
+	for _, s := range c.StrategyMap {
+		go s.Run()
+	}
+}
+
 func (c *Engine) Run() {
 	c.MarketDataConnector.Run()
-	stratWaiters := make(map[string]*EngineWaiter)
-	var bufferedMD []event
-	maxL := 20
-
-EVENT_LOOP:
+	c.BrokerConnector.Run()
+	c.runStrategies()
+LOOP:
 	for {
-
-		//CASE WHEN WE HAVE WAITING RESPONSES FROM BROKER
-		if len(stratWaiters) > 0 {
-			withMD := false
-			l := len(stratWaiters) + 1 //Because we need default chan as well
-			if len(bufferedMD) < maxL {
-				l += 1 //add MD chan to select case
-				withMD = true
+		select {
+		case e := <-c.mdChan:
+			switch i := e.(type) {
+			case *NewTickEvent:
+				c.eTick(i)
+			case *EndOfDataEvent:
+				break LOOP
 			}
-			cases := make([]reflect.SelectCase, l)
-			casesID := make([]string, l)
-
-			i := 0
-			for w := range stratWaiters {
-				ch := c.brokerChans[w]
-				cases[i] = reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(ch),
-				}
-				i++
-				casesID[i] = w
-			}
-
-			//Add Default case
-			{
-				cases[l-1] = reflect.SelectCase{
-					Dir: reflect.SelectDefault,
-				}
-				casesID[l-1] = "Default"
-
-			}
-
-			if withMD {
-				cases[l] = reflect.SelectCase{
-					Dir:  reflect.SelectRecv,
-					Chan: reflect.ValueOf(c.mdChan),
-				}
-				casesID[l] = "MarketData"
-			}
-
-			switch index, value, recvOK := reflect.Select(cases); index {
-			case l: //Market data case
-				ev := reflect.ValueOf(value).Interface().(event)
-				switch e := ev.(type) {
-				case *NewTickEvent:
-					if _, ok := stratWaiters[e.Symbol]; ok {
-						bufferedMD = append(bufferedMD, e) //Save it to buffer
-					} else {
-						c.proxyEvent(e)
-					}
-				case *EndOfDataEvent:
-					bufferedMD = append(bufferedMD, e) //We read it only from buffer
-				default:
-					panic("Unexpected event for market data")
-				}
-			case l - 1: // We GOT default value
-				if recvOK {
-					panic("Shouldn't expect value here : 283")
-				}
-
-			default: // Otherwise we get broker event
-				ev := reflect.ValueOf(value).Interface().(event)
-				switch e := ev.(type) {
-				case *OrderFillEvent:
-					c.proxyEvent(e) //Just proxy event. Probably we are waiting for another one
-				default:
-					c.proxyEvent(e)
-					delete(stratWaiters, casesID[index])
-				}
-
-			}
-
-			if len(stratWaiters) == 0{continue EVENT_LOOP} // We had clear all events
-
-			now := time.Now()
-			var kr string
-
-		WaitersLoop:
-			for k, v := range stratWaiters {
-				if v.isExpired(now) {
-					kr = k
-					break WaitersLoop
-				}
-			}
-
-			if kr != "" {
-				c.genEventAfterExpired(stratWaiters[kr])
-				delete(stratWaiters, kr)
-				continue EVENT_LOOP
-			}
-
+		case e := <-c.errChan:
+			c.logError(e)
 		}
-
 	}
+
 	c.shutDown()
 }
 

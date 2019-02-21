@@ -52,9 +52,9 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 		strategy: &st}
 
 	bs.init()
-	eventsChan := make(chan event)
+	/*eventsChan := make(chan event)
 	errorsChan := make(chan error)
-	bs.Connect(errorsChan, eventsChan)
+	bs.Connect(errorsChan, eventsChan, make(chan struct{}))*/
 	return &bs
 
 }

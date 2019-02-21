@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,8 +32,10 @@ type IStrategy interface {
 	onTimerTickHandler(e *TimerTickEvent)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
+	Run()
 
-	Connect(errorsChan chan error, eventChan chan event)
+	Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
+		notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{})
 }
 
 type IUserStrategy interface {
@@ -40,22 +43,29 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
-	connected          bool
-	Symbol             string
-	Name               string
-	NPeriods           int
-	closedTrades       []*Trade
-	currentTrade       *Trade
-	Ticks              marketdata.TickArray
-	Candles            marketdata.CandleArray
-	lastCandleOpen     float64
-	lastCandleOpenTime time.Time
-	eventChan          chan event
-	errorsChan         chan error
-	lastEventTime      time.Time
-	strategy           IUserStrategy
-	mostRecentTime     time.Time
-	mut                *sync.Mutex
+	connected           bool
+	Symbol              string
+	Name                string
+	NPeriods            int
+	requestsChan        chan event
+	brokerChan          <-chan event
+	brokerReady         <-chan struct{}
+	brokerNotifyChan    chan *BrokerNotifyEvent
+	terminationChan     <-chan struct{}
+	waitingConfirmation map[string]struct{}
+	waitingN            int32
+	closedTrades        []*Trade
+	currentTrade        *Trade
+	Ticks               marketdata.TickArray
+	Candles             marketdata.CandleArray
+	lastCandleOpen      float64
+	lastCandleOpenTime  time.Time
+
+	errorsChan     chan error
+	lastEventTime  time.Time
+	strategy       IUserStrategy
+	mostRecentTime time.Time
+	mut            *sync.Mutex
 }
 
 func (b *BasicStrategy) init() {
@@ -67,17 +77,16 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
-	if eventChan == nil {
-		panic("Can't connect stategy. Event channel is nil")
-	}
+func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
+	notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}) {
 
-	if errorsChan == nil {
-		panic("Can't connect strategy. Errors chan is nil")
-	}
-
-	b.eventChan = eventChan
 	b.errorsChan = errorsChan
+	b.brokerChan = brokerChan
+	b.requestsChan = requestChan
+	b.brokerReady = brokReadyChan
+	b.brokerNotifyChan = notChan
+	b.terminationChan = make(chan struct{})
+	b.waitingConfirmation = make(map[string]struct{})
 	b.mut = &sync.Mutex{}
 	b.connected = true
 
@@ -85,6 +94,38 @@ func (b *BasicStrategy) Connect(errorsChan chan error, eventChan chan event) {
 
 //Strategy API calls
 func (b *BasicStrategy) OnCandleClose() {
+
+}
+
+func (b *BasicStrategy) proxyEvent(e event) {
+	switch i := e.(type) {
+	case *OrderCancelEvent:
+		b.onOrderCancelHandler(i)
+	case *OrderConfirmationEvent:
+		b.onOrderConfirmHandler(i)
+	case *OrderReplacedEvent:
+		b.onOrderReplacedHandler(i)
+	case *OrderRejectedEvent:
+		b.onOrderRejectedHandler(i)
+	default:
+		panic("Unexpected event time in strategy: " + e.getName())
+	}
+
+}
+func (b *BasicStrategy) Run() {
+Loop:
+	for {
+		select {
+		case e := <-b.brokerChan:
+			b.proxyEvent(e)
+		case <-b.terminationChan:
+			break Loop
+		}
+	}
+	b.shutDown()
+}
+
+func (b *BasicStrategy) shutDown() {
 
 }
 
@@ -157,7 +198,15 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 		LinkedOrder: order,
 		BaseEvent:   be(order.Time, order.Symbol),
 	}
-	go b.newEvent(&ordEvent)
+
+	reqID := "$NO$" + order.Id
+	if _, ok := b.waitingConfirmation[reqID]; ok {
+		return errors.New("Order is already waiting for conf. ")
+	} else {
+		b.waitingConfirmation[reqID] = struct{}{}
+		atomic.AddInt32(&b.waitingN, 1)
+	}
+	b.newEvent(&ordEvent)
 	return nil
 }
 
@@ -175,7 +224,15 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 		BaseEvent: be(b.mostRecentTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
 	}
 
-	go b.newEvent(&cancelReq)
+	reqID := "$CAN$" + ordID
+	if _, ok := b.waitingConfirmation[reqID]; ok {
+		return errors.New("Order is already waiting for conf. ")
+	} else {
+		b.waitingConfirmation[reqID] = struct{}{}
+		atomic.AddInt32(&b.waitingN, 1)
+	}
+
+	b.newEvent(&cancelReq)
 
 	return nil
 }
@@ -292,7 +349,23 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 	return nil
 }
 
+func (b *BasicStrategy) waitForConfiramtions() {
+	for atomic.LoadInt32(&b.waitingN) > 0 {
+
+	}
+	for {
+		select {
+		case <-b.brokerReady:
+			break
+		default:
+			continue
+		}
+	}
+}
+
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	b.waitForConfiramtions()
+
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
@@ -396,11 +469,16 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		b.currentTrade = newPos
 	}
 
+	b.brokerNotifyChan <- &BrokerNotifyEvent{be(e.Time, e.Symbol), e}
+
 }
 
 func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+	atomic.AddInt32(&b.waitingN, -1)
+	delete(b.waitingConfirmation, "&CAN&"+e.OrdId)
 
 	err := b.currentTrade.cancelOrder(e.OrdId)
 
@@ -414,6 +492,9 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+	atomic.AddInt32(&b.waitingN, -1)
+	delete(b.waitingConfirmation, "&NO&"+e.OrdId)
 
 	err := b.currentTrade.confirmOrder(e.OrdId)
 
@@ -432,11 +513,16 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	if err != nil {
 		go b.error(err)
 	}
+
+	panic("Not implemented")
 }
 
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+	atomic.AddInt32(&b.waitingN, -1)
+	delete(b.waitingConfirmation, "&NO&"+e.OrdId)
 
 	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
 
@@ -444,12 +530,6 @@ func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 		go b.error(err)
 		return
 	}
-}
-
-//Broker events
-
-func (b *BasicStrategy) onBrokerPositionHandler(e *BrokerPositionUpdateEvent) []*event {
-	return nil
 }
 
 //Timer events
@@ -467,10 +547,7 @@ func (b *BasicStrategy) error(err error) {
 }
 
 func (b *BasicStrategy) newEvent(e event) {
-	if b.eventChan != nil {
-		b.eventChan <- e
-
-	}
+	b.requestsChan <- e
 }
 
 func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {

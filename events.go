@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"time"
 	"alex/marketdata"
 	"fmt"
+	"time"
 )
 
 type event interface {
@@ -20,8 +20,8 @@ func (c *BaseEvent) getTime() time.Time {
 	return c.Time
 }
 
-func be(datetime time.Time, symbol string) BaseEvent{
-	b := BaseEvent{Time:datetime, Symbol:symbol}
+func be(datetime time.Time, symbol string) BaseEvent {
+	b := BaseEvent{Time: datetime, Symbol: symbol}
 	return b
 }
 
@@ -192,4 +192,13 @@ type EndOfDataEvent struct {
 
 func (c *EndOfDataEvent) getName() string {
 	return "EndOfDataEvent"
+}
+
+type BrokerNotifyEvent struct {
+	BaseEvent
+	InitialEvent event
+}
+
+func (c *BrokerNotifyEvent) getName() string {
+	return "BrokerNotifyEvent"
 }

@@ -20,6 +20,8 @@ type IBroker interface {
 	OnCandleOpen(e *CandleOpenEvent)
 	OnTick(tick *marketdata.Tick)
 	GetAllChannelsMap() map[string]chan event
+	Run()
+	SetSymbolChannels(symbol string, request <-chan event, eventChan chan event, readyChan chan struct{}, notif chan *BrokerNotifyEvent)
 }
 
 type SimBrokerOrder struct {
@@ -39,6 +41,27 @@ type SimBroker struct {
 	workers                map[string]*SimulatedBrokerWorker
 }
 
+func (b *SimBroker) Run() {
+	for _, w := range b.workers {
+		go w.Run()
+	}
+
+}
+
+func (b *SimBroker) SetSymbolChannels(symbol string, request <-chan event, eventChan chan event,
+	readyChan chan struct{}, notif chan *BrokerNotifyEvent) {
+	w, ok := b.workers[symbol]
+	if !ok {
+		panic("Can't set channel for symbol not in workers")
+	}
+
+	w.requestChan = request
+	w.eventChan = eventChan
+	w.readyMdChan = readyChan
+	w.notificationChan = notif
+
+}
+
 func (b *SimBroker) Connect(err chan error, symbols []string) {
 	if len(symbols) == 0 {
 		panic("No symbols specified")
@@ -50,6 +73,7 @@ func (b *SimBroker) Connect(err chan error, symbols []string) {
 		bw := SimulatedBrokerWorker{
 			symbol:               s,
 			errChan:              err,
+			terminationChan:      make(chan struct{}),
 			delay:                b.delay,
 			hasQuotesAndTrades:   b.hasQuotesAndTrades,
 			strictLimitOrders:    b.strictLimitOrders,
@@ -122,9 +146,14 @@ func (b *SimBroker) OnCandleOpen(e *CandleOpenEvent) {
 }
 
 type SimulatedBrokerWorker struct {
-	symbol    string
-	errChan   chan error
-	eventChan chan event
+	symbol string
+
+	errChan          chan error
+	requestChan      <-chan event
+	eventChan        chan event
+	readyMdChan      chan struct{}
+	notificationChan <-chan *BrokerNotifyEvent
+	terminationChan  <-chan struct{}
 
 	delay                int64
 	hasQuotesAndTrades   bool
@@ -134,6 +163,39 @@ type SimulatedBrokerWorker struct {
 
 	mpMutext *sync.RWMutex
 	orders   map[string]*SimBrokerOrder
+}
+
+func (b *SimulatedBrokerWorker) proxyEvent(e event) {
+	switch i := e.(type) {
+	case *NewOrderEvent:
+		b.OnNewOrder(i)
+	case *OrderCancelRequestEvent:
+		b.OnCancelRequest(i)
+	case *OrderReplaceRequestEvent:
+		b.OnReplaceRequest(i)
+	default:
+		panic("Unexpected event time in broker: " + e.getName())
+
+	}
+
+}
+
+func (b *SimulatedBrokerWorker) shutDown() {
+
+}
+
+func (b *SimulatedBrokerWorker) Run() {
+Loop:
+	for {
+		select {
+		case e := <-b.requestChan:
+			b.proxyEvent(e)
+		case <-b.terminationChan:
+			break Loop
+		}
+	}
+	b.shutDown()
+
 }
 
 func (b *SimulatedBrokerWorker) OnNewOrder(e *NewOrderEvent) {
@@ -227,7 +289,7 @@ func (b *SimulatedBrokerWorker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
 		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
 	}
 
-	go b.newEvent(&replacedEvent)
+	b.newEvent(&replacedEvent)
 
 }
 
@@ -307,6 +369,7 @@ func (b *SimulatedBrokerWorker) OnTick(tick *marketdata.Tick) {
 	}
 
 	b.mpMutext.Unlock()
+	b.readyMdChan <- struct{}{}
 
 }
 
@@ -827,9 +890,8 @@ func (b *SimulatedBrokerWorker) newEvent(e event) {
 
 	}
 
-	go func() {
-		b.eventChan <- e
-	}()
+	b.eventChan <- e
+	<-b.notificationChan
 
 }
 
