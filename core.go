@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
+	"time"
 )
 
 type Engine struct {
@@ -51,7 +53,6 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 
 	eng.backtestMode = mode
 	eng.prepareLogger()
-
 
 	return &eng
 }
@@ -220,26 +221,121 @@ func (c *Engine) checkForErrorsEventQ(e event) {
 
 }
 
+func (c *Engine) genEventAfterExpired(w *EngineWaiter) {
+
+}
+
 func (c *Engine) Run() {
 	c.MarketDataConnector.Run()
+	stratWaiters := make(map[string]*EngineWaiter)
+	var bufferedMD []event
+	maxL := 20
 
-	//Todo
+EVENT_LOOP:
+	for {
 
-	/*EVENT_LOOP:
-		for {
-			select {
-			case e := <-c.syncChan:
+		//CASE WHEN WE HAVE WAITING RESPONSES FROM BROKER
+		if len(stratWaiters) > 0 {
+			withMD := false
+			l := len(stratWaiters) + 1 //Because we need default chan as well
+			if len(bufferedMD) < maxL {
+				l += 1 //add MD chan to select case
+				withMD = true
+			}
+			cases := make([]reflect.SelectCase, l)
+			casesID := make([]string, l)
 
+			i := 0
+			for w := range stratWaiters {
+				ch := c.brokerChans[w]
+				cases[i] = reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(ch),
+				}
+				i++
+				casesID[i] = w
+			}
 
+			//Add Default case
+			{
+				cases[l-1] = reflect.SelectCase{
+					Dir: reflect.SelectDefault,
+				}
+				casesID[l-1] = "Default"
 
+			}
 
-			case e := <-c.errChan:
-				go c.logError(e)
-				if c.errorIsCritical(e) {
-					break EVENT_LOOP
+			if withMD {
+				cases[l] = reflect.SelectCase{
+					Dir:  reflect.SelectRecv,
+					Chan: reflect.ValueOf(c.mdChan),
+				}
+				casesID[l] = "MarketData"
+			}
+
+			switch index, value, recvOK := reflect.Select(cases); index {
+			case l: //Market data case
+				ev := reflect.ValueOf(value).Interface().(event)
+				switch e := ev.(type) {
+				case *NewTickEvent:
+					if _, ok := stratWaiters[e.Symbol]; ok {
+						bufferedMD = append(bufferedMD, e) //Save it to buffer
+					} else {
+						c.proxyEvent(e)
+					}
+				case *EndOfDataEvent:
+					bufferedMD = append(bufferedMD, e) //We read it only from buffer
+				default:
+					panic("Unexpected event for market data")
+				}
+			case l - 1: // We GOT default value
+				if recvOK {
+					panic("Shouldn't expect value here : 283")
+				}
+
+			default: // Otherwise we get broker event
+				ev := reflect.ValueOf(value).Interface().(event)
+				switch e := ev.(type) {
+				case *OrderFillEvent:
+					c.proxyEvent(e) //Just proxy event. Probably we are waiting for another one
+				default:
+					c.proxyEvent(e)
+					delete(stratWaiters, casesID[index])
+				}
+
+			}
+
+			if len(stratWaiters) == 0{continue EVENT_LOOP} // We had clear all events
+
+			now := time.Now()
+			var kr string
+
+		WaitersLoop:
+			for k, v := range stratWaiters {
+				if v.isExpired(now) {
+					kr = k
+					break WaitersLoop
 				}
 			}
 
-	}*/
+			if kr != "" {
+				c.genEventAfterExpired(stratWaiters[kr])
+				delete(stratWaiters, kr)
+				continue EVENT_LOOP
+			}
+
+		}
+
+	}
 	c.shutDown()
+}
+
+type EngineWaiter struct {
+	since       time.Time
+	maxWaitTime time.Duration
+	e           event
+}
+
+func (w *EngineWaiter) isExpired(t time.Time) bool {
+	return w.since.Sub(t) > w.maxWaitTime
 }
