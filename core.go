@@ -111,12 +111,13 @@ func (c *Engine) eTick(e *NewTickEvent) {
 		panic("Tick symbol is empty")
 	}
 	st := c.getSymbolStrategy(e.Tick.Symbol)
+	go st.onTickHandler(e)
 
-	if c.BrokerConnector.IsSimulated() {
-		c.BrokerConnector.OnTick(e.Tick)
-	}
+	/*if c.BrokerConnector.IsSimulated() {
+			c.BrokerConnector.OnTick(e.Tick)
+	}*/
 
-	st.onTickHandler(e)
+
 
 }
 
@@ -245,6 +246,7 @@ LOOP:
 		case e := <-c.mdChan:
 			switch i := e.(type) {
 			case *NewTickEvent:
+				fmt.Println("Tick")
 				c.eTick(i)
 			case *EndOfDataEvent:
 				break LOOP

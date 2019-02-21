@@ -350,21 +350,17 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 }
 
 func (b *BasicStrategy) waitForConfiramtions() {
-	for atomic.LoadInt32(&b.waitingN) > 0 {
 
-	}
-	for {
-		select {
-		case <-b.brokerReady:
-			break
-		default:
-			continue
-		}
-	}
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
-	b.waitForConfiramtions()
+	for atomic.LoadInt32(&b.waitingN) > 0 {
+		fmt.Println("Wait for mergeng events")
+	}
+	fmt.Println("No waiters.\n Waiting for broker sig")
+	b.requestsChan <- e
+	<-b.brokerReady
+	fmt.Println("Broker sig is OK")
 
 	b.mut.Lock()
 	defer b.mut.Unlock()

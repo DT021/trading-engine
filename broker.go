@@ -132,7 +132,7 @@ func (b *SimBroker) OnTick(tick *marketdata.Tick) {
 	}
 
 	w := b.getWorker(tick.Symbol)
-	go w.OnTick(tick)
+	w.OnTick(tick)
 
 }
 
@@ -173,6 +173,8 @@ func (b *SimulatedBrokerWorker) proxyEvent(e event) {
 		b.OnCancelRequest(i)
 	case *OrderReplaceRequestEvent:
 		b.OnReplaceRequest(i)
+	case *NewTickEvent:
+		b.OnTick(i.Tick)
 	default:
 		panic("Unexpected event time in broker: " + e.getName())
 
@@ -332,6 +334,9 @@ func (b *SimulatedBrokerWorker) OnCandleClose(e *CandleCloseEvent) {
 }
 
 func (b *SimulatedBrokerWorker) OnTick(tick *marketdata.Tick) {
+	defer func() {
+		b.readyMdChan <- struct{}{}
+	}()
 
 	if !b.tickIsValid(tick) {
 		err := ErrBrokenTick{
@@ -369,7 +374,6 @@ func (b *SimulatedBrokerWorker) OnTick(tick *marketdata.Tick) {
 	}
 
 	b.mpMutext.Unlock()
-	b.readyMdChan <- struct{}{}
 
 }
 
@@ -891,6 +895,7 @@ func (b *SimulatedBrokerWorker) newEvent(e event) {
 	}
 
 	b.eventChan <- e
+	fmt.Println("Waiting for notification")
 	<-b.notificationChan
 
 }

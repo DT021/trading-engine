@@ -90,7 +90,7 @@ func TestEngine_Run(t *testing.T) {
 	count := 0
 	for {
 		count ++
-		if count > 30 {
+		if count > 1 {
 			break
 		}
 
