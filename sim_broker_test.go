@@ -10,12 +10,12 @@ package engine
 )*/
 
 
-func newTestSimulatedBroker() *SimulatedBroker {
-	b := SimulatedBroker{delay: 1000}
+func newTestSimulatedBroker() *SimBroker {
+	b := SimBroker{delay: 1000}
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
-	eventChan := make(chan event)
-	b.Connect(errChan, eventChan)
+
+	b.Connect(errChan, []string{""})
 
 	return &b
 }/*
@@ -24,7 +24,7 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 	t.Log("Test connect simulated broker")
 	{
 
-		b := SimulatedBroker{}
+		b := SimulatedBrokerWorker{}
 		errChan := make(chan error)
 		eventChan := make(chan event)
 		mut := &sync.Mutex{}
@@ -311,7 +311,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	}
 }
 
-func assertNoEventsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
+func assertNoEventsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
 	select {
 	case v, ok := <-b.eventChan:
 		assert.False(t, ok)
@@ -324,7 +324,7 @@ func assertNoEventsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
 	}
 }
 
-func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
+func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
 	select {
 	case v, ok := <-b.errChan:
 		assert.False(t, ok)
@@ -337,7 +337,7 @@ func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBroker) {
 	}
 }
 
-func getTestSimBrokerGeneratedEvent(b *SimulatedBroker) event {
+func getTestSimBrokerGeneratedEvent(b *SimulatedBrokerWorker) event {
 
 	select {
 	case v := <-b.eventChan:
@@ -348,7 +348,7 @@ func getTestSimBrokerGeneratedEvent(b *SimulatedBroker) event {
 	}
 }
 
-func getTestSimBrokerGeneratedErrors(b *SimulatedBroker) error {
+func getTestSimBrokerGeneratedErrors(b *SimulatedBrokerWorker) error {
 
 	select {
 	case v := <-b.errChan:

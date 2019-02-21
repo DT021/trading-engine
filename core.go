@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sort"
-	"time"
 )
 
 type Engine struct {
@@ -13,30 +11,31 @@ type Engine struct {
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]IStrategy
-	brokerChan          chan event
-	strategiesChan      chan event
+	brokerChans         map[string]chan event
+	strategiesChan      map[string]chan event
 	errChan             chan error
 	mdChan              chan event
-	lastTime            time.Time
-	prevEvent           event
-	log                 log.Logger
-	backtestMode        bool
-	syncChan            chan event
+
+	log          log.Logger
+	backtestMode bool
+	prevEvent    event
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode bool) *Engine {
-	brokerChan := make(chan event)
-	strategyChan := make(chan event)
-	mdChan := make(chan event, 5)
+
+	strategyChan := make(map[string]chan event)
+	mdChan := make(chan event)
 	errChan := make(chan error)
 
 	var symbols []string
 	for k := range sp {
 		symbols = append(symbols, k)
-		sp[k].Connect(errChan, strategyChan)
+		c := make(chan event)
+		sp[k].Connect(errChan, c)
+		strategyChan[k] = c
 	}
 
-	broker.Connect(errChan, brokerChan)
+	broker.Connect(errChan, symbols)
 	md.Connect(errChan, mdChan)
 	md.SetSymbols(symbols)
 	eng := Engine{
@@ -44,7 +43,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 		BrokerConnector:     broker,
 		MarketDataConnector: md,
 		StrategyMap:         sp,
-		brokerChan:          brokerChan,
+		brokerChans:         broker.GetAllChannelsMap(),
 		strategiesChan:      strategyChan,
 		errChan:             errChan,
 		mdChan:              mdChan,
@@ -52,7 +51,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 
 	eng.backtestMode = mode
 	eng.prepareLogger()
-	eng.syncChan = make(chan event)
+
 
 	return &eng
 }
@@ -172,148 +171,75 @@ func (c *Engine) shutDown() {
 
 }
 
-func (c *Engine) syncChans() {
-	var mdEvent event
-	var sigEvent event
-	var ordEvent event
+func (c *Engine) proxyEvent(e event) {
+	switch i := e.(type) {
 
-EVENT_LOOP:
-	for {
-		if sigEvent == nil {
-			select {
-			case e := <-c.strategiesChan:
-				sigEvent = e
-			case <-time.After(300 * time.Microsecond):
-				sigEvent = nil
-			//default:
-			//	sigEvent = nil
-			}
+	case *CandleOpenEvent:
+		c.eCandleOpen(i)
+	case *CandleCloseEvent:
+		c.eCandleClose(i)
+	case *NewTickEvent:
+		c.eTick(i)
+	case *EndOfDataEvent:
+		c.eEndOfData(i)
+	case *NewOrderEvent:
+		c.eNewOrder(i)
+	case *OrderConfirmationEvent:
+		c.eOrderConfirmed(i)
+	case *OrderCancelRequestEvent:
+		c.eCancelRequest(i)
+	case *OrderReplaceRequestEvent:
+		c.eReplaceRequest(i)
+	case *OrderRejectedEvent:
+		c.eOrderRejected(i)
+	case *OrderCancelEvent:
+		go c.eOrderCanceled(i)
+	case *OrderReplacedEvent:
+		c.eOrderReplaced(i)
+	case *OrderFillEvent:
+		c.eFill(i)
+	default:
+		panic("Unexpected event in events chan")
 
-		}
-		if ordEvent == nil {
-			select {
-			case e := <-c.brokerChan:
-				ordEvent = e
-			case <-time.After(300 * time.Microsecond):
-				ordEvent = nil
-			//default:
-			//	ordEvent = nil
-			}
-		}
-		if mdEvent == nil {
-			select {
-			case e := <-c.mdChan:
-				mdEvent = e
-			default:
-				mdEvent = nil
-			}
-		}
-
-		var awaitingEvents []event
-	INT_LOOP:
-		for _, e := range []event{mdEvent, sigEvent, ordEvent} {
-			if e == nil {
-				continue INT_LOOP
-			}
-			awaitingEvents = append(awaitingEvents, e)
-		}
-		if len(awaitingEvents) == 0 {
-			continue EVENT_LOOP
-		}
-
-		first := awaitingEvents[0]
-		if len(awaitingEvents) > 1 {
-			sort.SliceStable(awaitingEvents, func(i, j int) bool {
-				return awaitingEvents[i].getTime().Unix() < awaitingEvents[j].getTime().Unix()
-			})
-
-			first = awaitingEvents[0]
-		}
-
-		c.syncChan <- first
-
-		switch first.(type) {
-		case *EndOfDataEvent:
-			break EVENT_LOOP
-
-		}
-
-		if first == sigEvent {
-			sigEvent = nil
-		}
-
-		if first == mdEvent {
-			mdEvent = nil
-		}
-
-		if first == ordEvent {
-			ordEvent = nil
-		}
 	}
+}
+
+func (c *Engine) checkForErrorsEventQ(e event) {
+	if c.backtestMode {
+		msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
+		c.log.Print(msg)
+
+		if e.getTime().Before(c.prevEvent.getTime()) {
+			out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
+				c.prevEvent.getTime(), e.getName(), e.getTime())
+			c.log.Print(out)
+		}
+
+		c.prevEvent = e
+	}
+
 }
 
 func (c *Engine) Run() {
 	c.MarketDataConnector.Run()
-	go c.syncChans()
-EVENT_LOOP:
-	for {
-		select {
-		case e := <-c.syncChan:
-			if c.backtestMode {
-				msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
-				c.log.Print(msg)
-				if e.getTime().Before(c.MarketDataConnector.GetFirstTime()) {
-					panic(e)
+
+	//Todo
+
+	/*EVENT_LOOP:
+		for {
+			select {
+			case e := <-c.syncChan:
+
+
+
+
+			case e := <-c.errChan:
+				go c.logError(e)
+				if c.errorIsCritical(e) {
+					break EVENT_LOOP
 				}
-				t := e.getTime()
-				if t.Before(c.lastTime) {
-					out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
-						c.prevEvent.getTime(), e.getName(), e.getTime())
-					c.log.Print(out)
-				}
-				c.lastTime = t
-				c.prevEvent = e
 			}
 
-			switch i := e.(type) {
-
-			case *CandleOpenEvent:
-				c.eCandleOpen(i)
-			case *CandleCloseEvent:
-				c.eCandleClose(i)
-			case *NewTickEvent:
-				c.eTick(i)
-			case *EndOfDataEvent:
-				c.eEndOfData(i)
-				break EVENT_LOOP
-			case *NewOrderEvent:
-				c.eNewOrder(i)
-			case *OrderConfirmationEvent:
-				c.eOrderConfirmed(i)
-			case *OrderCancelRequestEvent:
-				c.eCancelRequest(i)
-			case *OrderReplaceRequestEvent:
-				c.eReplaceRequest(i)
-			case *OrderRejectedEvent:
-				c.eOrderRejected(i)
-			case *OrderCancelEvent:
-				go c.eOrderCanceled(i)
-			case *OrderReplacedEvent:
-				c.eOrderReplaced(i)
-			case *OrderFillEvent:
-				c.eFill(i)
-			default:
-				panic("Unexpected event in events chan")
-
-			}
-
-		case e := <-c.errChan:
-			go c.logError(e)
-			if c.errorIsCritical(e) {
-				break EVENT_LOOP
-			}
-		}
-
-	}
+	}*/
 	c.shutDown()
 }

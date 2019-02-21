@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"fmt"
 	"alex/marketdata"
+	"fmt"
 )
 
 type ErrBrokenTick struct {
-	Tick   marketdata.Tick
+	Tick    marketdata.Tick
 	Message string
 	Caller  string
 }
@@ -17,7 +17,7 @@ func (e *ErrBrokenTick) Error() string {
 }
 
 type ErrInvalidRequestPrice struct {
-	Price float64
+	Price   float64
 	Message string
 	Caller  string
 }
@@ -73,7 +73,6 @@ func (e *ErrUnexpectedOrderType) Error() string {
 
 }
 
-
 type ErrUnexpectedOrderState struct {
 	OrdId         string
 	ActualState   string
@@ -87,17 +86,22 @@ func (e *ErrUnexpectedOrderState) Error() string {
 
 }
 
-
-type ErrOrderNotFoundInConfirmedMap struct {
+type ErrOrderNotFoundInOrdersMap struct {
 	OrdId   string
 	Message string
 	Caller  string
+}
+
+func (e *ErrOrderNotFoundInOrdersMap) Error() string {
+	return fmt.Sprintf("%v: ErrOrderNotFoundInConfirmedMap (id:%v). %v", e.Caller, e.OrdId, e.Message)
+
+}
+
+type ErrOrderNotFoundInConfirmedMap struct {
+	ErrOrderNotFoundInOrdersMap
 }
 
 func (e *ErrOrderNotFoundInConfirmedMap) Error() string {
 	return fmt.Sprintf("%v: ErrOrderNotFoundInConfirmedMap (id:%v). %v", e.Caller, e.OrdId, e.Message)
 
 }
-
-
-
