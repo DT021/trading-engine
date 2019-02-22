@@ -23,16 +23,11 @@ type IStrategy interface {
 	onTickHistoryHandler(e *TickHistoryEvent) []*event
 	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
-	onOrderFillHandler(e *OrderFillEvent)
-	onOrderCancelHandler(e *OrderCancelEvent)
-	onOrderConfirmHandler(e *OrderConfirmationEvent)
-	onOrderReplacedHandler(e *OrderReplacedEvent)
-	onOrderRejectedHandler(e *OrderRejectedEvent)
-
 	onTimerTickHandler(e *TimerTickEvent)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
 	Run()
+	Finish()
 
 	Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
 		notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{})
@@ -51,7 +46,7 @@ type BasicStrategy struct {
 	brokerChan          <-chan event
 	brokerReady         <-chan struct{}
 	brokerNotifyChan    chan *BrokerNotifyEvent
-	terminationChan     <-chan struct{}
+	terminationChan     chan struct{}
 	waitingConfirmation map[string]struct{}
 	waitingN            int32
 	closedTrades        []*Trade
@@ -92,12 +87,19 @@ func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, re
 
 }
 
+
+func (b *BasicStrategy) Finish(){
+	go func(){
+		b.terminationChan <- struct{}{}
+	}()
+}
 //Strategy API calls
 func (b *BasicStrategy) OnCandleClose() {
 
 }
 
 func (b *BasicStrategy) proxyEvent(e event) {
+	fmt.Println(e.getName())
 	switch i := e.(type) {
 	case *OrderCancelEvent:
 		b.onOrderCancelHandler(i)
@@ -107,6 +109,8 @@ func (b *BasicStrategy) proxyEvent(e event) {
 		b.onOrderReplacedHandler(i)
 	case *OrderRejectedEvent:
 		b.onOrderRejectedHandler(i)
+	case *OrderFillEvent:
+		b.onOrderFillHandler(i)
 	default:
 		panic("Unexpected event time in strategy: " + e.getName())
 	}
@@ -211,6 +215,7 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 }
 
 func (b *BasicStrategy) CancelOrder(ordID string) error {
+	fmt.Println("Cancel order")
 	if ordID == "" {
 		return errors.New("Order Id not specified. ")
 	}
@@ -355,12 +360,12 @@ func (b *BasicStrategy) waitForConfiramtions() {
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	for atomic.LoadInt32(&b.waitingN) > 0 {
-		fmt.Println("Wait for mergeng events")
+		//fmt.Println("Wait for mergeng events")
 	}
-	fmt.Println("No waiters.\n Waiting for broker sig")
+	//fmt.Println("No waiters.\n Waiting for broker sig")
 	b.requestsChan <- e
 	<-b.brokerReady
-	fmt.Println("Broker sig is OK")
+	//fmt.Println("Broker sig is OK")
 
 	b.mut.Lock()
 	defer b.mut.Unlock()

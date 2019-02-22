@@ -10,18 +10,11 @@ import (
 )
 
 type IBroker interface {
-	IsSimulated() bool
 	Connect(err chan error, symbols []string)
-	OnNewOrder(e *NewOrderEvent)
-	OnCancelRequest(e *OrderCancelRequestEvent)
-	OnReplaceRequest(e *OrderReplaceRequestEvent)
-
-	OnCandleClose(e *CandleCloseEvent)
-	OnCandleOpen(e *CandleOpenEvent)
-	OnTick(tick *marketdata.Tick)
-	GetAllChannelsMap() map[string]chan event
-	Run()
+	SubscribeEvents()
+	UnSubscribeEvents()
 	SetSymbolChannels(symbol string, request <-chan event, eventChan chan event, readyChan chan struct{}, notif chan *BrokerNotifyEvent)
+	IsSimulated() bool
 }
 
 type SimBrokerOrder struct {
@@ -39,27 +32,6 @@ type SimBroker struct {
 	marketOpenUntilTime    TimeOfDay
 	marketCloseUntilTime   TimeOfDay
 	workers                map[string]*SimulatedBrokerWorker
-}
-
-func (b *SimBroker) Run() {
-	for _, w := range b.workers {
-		go w.Run()
-	}
-
-}
-
-func (b *SimBroker) SetSymbolChannels(symbol string, request <-chan event, eventChan chan event,
-	readyChan chan struct{}, notif chan *BrokerNotifyEvent) {
-	w, ok := b.workers[symbol]
-	if !ok {
-		panic("Can't set channel for symbol not in workers")
-	}
-
-	w.requestChan = request
-	w.eventChan = eventChan
-	w.readyMdChan = readyChan
-	w.notificationChan = notif
-
 }
 
 func (b *SimBroker) Connect(err chan error, symbols []string) {
@@ -88,62 +60,41 @@ func (b *SimBroker) Connect(err chan error, symbols []string) {
 	}
 }
 
-func (b *SimBroker) getWorker(symbol string) *SimulatedBrokerWorker {
-	w, ok := b.workers[symbol]
-	if !ok {
-		panic("Symbol not found in sim broker")
+func (b *SimBroker) SubscribeEvents() {
+	for _, w := range b.workers {
+		go w.Run()
 	}
-	return w
+
 }
 
-func (b *SimBroker) GetAllChannelsMap() map[string]chan event {
-	allChans := make(map[string]chan event)
+func (b *SimBroker) UnSubscribeEvents() {
 	for _, w := range b.workers {
-		allChans[w.symbol] = w.eventChan
+		go func() {
+			w.terminationChan <- struct{}{}
+		}()
 	}
 
-	return allChans
+}
+
+func (b *SimBroker) SetSymbolChannels(symbol string, request <-chan event, eventChan chan event,
+	readyChan chan struct{}, notif chan *BrokerNotifyEvent) {
+	w, ok := b.workers[symbol]
+	if !ok {
+		panic("Can't set channel for symbol not in workers")
+	}
+
+	w.requestChan = request
+	w.eventChan = eventChan
+	w.readyMdChan = readyChan
+	w.notificationChan = notif
+
 }
 
 func (b *SimBroker) IsSimulated() bool {
 	return true
 }
 
-func (b *SimBroker) OnNewOrder(e *NewOrderEvent) {
-	w := b.getWorker(e.Symbol)
-	go w.OnNewOrder(e)
-}
 
-func (b *SimBroker) OnCancelRequest(e *OrderCancelRequestEvent) {
-	w := b.getWorker(e.Symbol)
-	go w.OnCancelRequest(e)
-
-}
-
-func (b *SimBroker) OnReplaceRequest(e *OrderReplaceRequestEvent) {
-	w := b.getWorker(e.Symbol)
-	go w.OnReplaceRequest(e)
-
-}
-
-func (b *SimBroker) OnTick(tick *marketdata.Tick) {
-	if !b.checkExecutionsOnTicks {
-		return
-	}
-
-	w := b.getWorker(tick.Symbol)
-	w.OnTick(tick)
-
-}
-
-func (b *SimBroker) OnCandleClose(e *CandleCloseEvent) {
-	panic("Not implemented")
-
-}
-
-func (b *SimBroker) OnCandleOpen(e *CandleOpenEvent) {
-	panic("Not implemented")
-}
 
 type SimulatedBrokerWorker struct {
 	symbol string
@@ -153,7 +104,7 @@ type SimulatedBrokerWorker struct {
 	eventChan        chan event
 	readyMdChan      chan struct{}
 	notificationChan <-chan *BrokerNotifyEvent
-	terminationChan  <-chan struct{}
+	terminationChan  chan struct{}
 
 	delay                int64
 	hasQuotesAndTrades   bool
@@ -247,6 +198,7 @@ func (b *SimulatedBrokerWorker) OnNewOrder(e *NewOrderEvent) {
 	}
 
 	b.newEvent(&confEvent)
+	fmt.Println("Order confirmed")
 
 }
 
@@ -848,6 +800,8 @@ func (b *SimulatedBrokerWorker) newEvent(e event) {
 		panic("Simulated broker event chan is nil")
 	}
 
+	waitForNotification := false
+
 	switch i := e.(type) {
 
 	case *OrderConfirmationEvent:
@@ -872,6 +826,7 @@ func (b *SimulatedBrokerWorker) newEvent(e event) {
 			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
 			panic(msg)
 		}
+		waitForNotification = true
 		execQty := i.Qty
 
 		if execQty == ord.Qty-ord.BrokerExecQty {
@@ -893,10 +848,14 @@ func (b *SimulatedBrokerWorker) newEvent(e event) {
 		ord.BrokerState = RejectedOrder
 
 	}
+	//TODO это факапит
 
 	b.eventChan <- e
-	fmt.Println("Waiting for notification")
-	<-b.notificationChan
+	if waitForNotification {
+		fmt.Println("Waiting for notification")
+		<-b.notificationChan
+		fmt.Println("Got notification")
+	}
 
 }
 

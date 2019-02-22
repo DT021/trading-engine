@@ -23,7 +23,9 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 	}
 
+	//fmt.Println(len(b.currentTrade.FilledOrders))
 	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySent {
+
 		price := tick.LastPrice * 0.95
 		ordId, err := b.NewLimitOrder(price, OrderBuy, 200)
 		if err != nil {
@@ -105,7 +107,7 @@ func TestEngine_Run(t *testing.T) {
 
 		}
 
-		engine := NewEngine(strategyMap, broker, md, true)
+		engine := NewEngine(strategyMap, broker, md, BacktestMode)
 
 		engine.Run()
 

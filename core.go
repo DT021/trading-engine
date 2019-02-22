@@ -4,7 +4,15 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"time"
+	"sync"
+)
+
+type EngineMode string
+
+const(
+	BacktestMode EngineMode = "BacktestMode"
+	MarketReplayMode EngineMode = "MarketReplayMode"
+
 )
 
 type Engine struct {
@@ -15,13 +23,12 @@ type Engine struct {
 	terminationChan     chan struct{}
 	errChan             chan error
 	mdChan              chan event
-
-	log          log.Logger
-	backtestMode bool
-	prevEvent    event
+	log                 log.Logger
+	backtestMode        EngineMode
+	workersG            *sync.WaitGroup
 }
 
-func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode bool) *Engine {
+func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode) *Engine {
 
 	mdChan := make(chan event)
 	errChan := make(chan error)
@@ -34,7 +41,6 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 	broker.Connect(errChan, symbols)
 
 	for _, k := range symbols {
-
 		brokChan := make(chan event)
 		requestChan := make(chan event)
 		readyMdChan := make(chan struct{})
@@ -57,6 +63,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode boo
 
 	eng.backtestMode = mode
 	eng.prepareLogger()
+	eng.workersG = &sync.WaitGroup{}
 
 	return &eng
 }
@@ -81,29 +88,27 @@ func (c *Engine) prepareLogger() {
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
+	/*st := c.getSymbolStrategy(e.Symbol)
 
 	if c.BrokerConnector.IsSimulated() {
 		c.BrokerConnector.OnCandleOpen(e)
 	}
 
-	st.onCandleOpenHandler(e)
+	st.onCandleOpenHandler(e)*/
+	panic("Not implemented")
 
 }
 
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
+	/*st := c.getSymbolStrategy(e.Symbol)
 
 	if c.BrokerConnector.IsSimulated() {
 		c.BrokerConnector.OnCandleClose(e)
 	}
 
-	st.onCandleCloseHandler(e)
+	st.onCandleCloseHandler(e)*/
+	panic("Not implemented")
 
-}
-
-func (c *Engine) eNewOrder(e *NewOrderEvent) {
-	c.BrokerConnector.OnNewOrder(e)
 }
 
 func (c *Engine) eTick(e *NewTickEvent) {
@@ -111,56 +116,11 @@ func (c *Engine) eTick(e *NewTickEvent) {
 		panic("Tick symbol is empty")
 	}
 	st := c.getSymbolStrategy(e.Tick.Symbol)
-	go st.onTickHandler(e)
-
-	/*if c.BrokerConnector.IsSimulated() {
-			c.BrokerConnector.OnTick(e.Tick)
-	}*/
-
-
-
-}
-
-func (c *Engine) eFill(e *OrderFillEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.onOrderFillHandler(e)
-
-}
-
-func (c *Engine) eCancelRequest(e *OrderCancelRequestEvent) {
-	if c.BrokerConnector.IsSimulated() {
-		c.BrokerConnector.OnCancelRequest(e)
-	}
-}
-
-func (c *Engine) eOrderCanceled(e *OrderCancelEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.onOrderCancelHandler(e)
-}
-
-func (c *Engine) eReplaceRequest(e *OrderReplaceRequestEvent) {
-	if c.BrokerConnector.IsSimulated() {
-		c.BrokerConnector.OnReplaceRequest(e)
-	}
-}
-
-func (c *Engine) eOrderReplaced(e *OrderReplacedEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.onOrderReplacedHandler(e)
-}
-
-func (c *Engine) eOrderConfirmed(e *OrderConfirmationEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.onOrderConfirmHandler(e)
-}
-
-func (c *Engine) eOrderRejected(e *OrderRejectedEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.onOrderRejectedHandler(e)
-}
-
-func (c *Engine) eEndOfData(e *EndOfDataEvent) {
-	//TODO
+	go func() {
+		c.workersG.Add(1)
+		st.onTickHandler(e)
+		c.workersG.Done()
+	}()
 }
 
 func (c *Engine) errorIsCritical(err error) bool {
@@ -174,59 +134,10 @@ func (c *Engine) logError(err error) {
 }
 
 func (c *Engine) shutDown() {
-
-}
-
-func (c *Engine) proxyEvent(e event) {
-	switch i := e.(type) {
-
-	case *CandleOpenEvent:
-		c.eCandleOpen(i)
-	case *CandleCloseEvent:
-		c.eCandleClose(i)
-	case *NewTickEvent:
-		c.eTick(i)
-	case *EndOfDataEvent:
-		c.eEndOfData(i)
-	case *NewOrderEvent:
-		c.eNewOrder(i)
-	case *OrderConfirmationEvent:
-		c.eOrderConfirmed(i)
-	case *OrderCancelRequestEvent:
-		c.eCancelRequest(i)
-	case *OrderReplaceRequestEvent:
-		c.eReplaceRequest(i)
-	case *OrderRejectedEvent:
-		c.eOrderRejected(i)
-	case *OrderCancelEvent:
-		go c.eOrderCanceled(i)
-	case *OrderReplacedEvent:
-		c.eOrderReplaced(i)
-	case *OrderFillEvent:
-		c.eFill(i)
-	default:
-		panic("Unexpected event in events chan")
-
+	c.BrokerConnector.UnSubscribeEvents()
+	for _, s := range c.StrategyMap {
+		s.Finish()
 	}
-}
-
-func (c *Engine) checkForErrorsEventQ(e event) {
-	if c.backtestMode {
-		msg := fmt.Sprintf("%v ||| %+v", e.getName(), e)
-		c.log.Print(msg)
-
-		if e.getTime().Before(c.prevEvent.getTime()) {
-			out := fmt.Sprintf("ERROR|||Events in wrong order: %v, %v, %v, %v", c.prevEvent.getName(),
-				c.prevEvent.getTime(), e.getName(), e.getTime())
-			c.log.Print(out)
-		}
-
-		c.prevEvent = e
-	}
-
-}
-
-func (c *Engine) genEventAfterExpired(w *EngineWaiter) {
 
 }
 
@@ -238,15 +149,16 @@ func (c *Engine) runStrategies() {
 
 func (c *Engine) Run() {
 	c.MarketDataConnector.Run()
-	c.BrokerConnector.Run()
+	c.BrokerConnector.SubscribeEvents()
 	c.runStrategies()
 LOOP:
 	for {
+
 		select {
 		case e := <-c.mdChan:
 			switch i := e.(type) {
 			case *NewTickEvent:
-				fmt.Println("Tick")
+				//fmt.Println("Tick")
 				c.eTick(i)
 			case *EndOfDataEvent:
 				break LOOP
@@ -256,15 +168,7 @@ LOOP:
 		}
 	}
 
+	c.workersG.Wait()
+
 	c.shutDown()
-}
-
-type EngineWaiter struct {
-	since       time.Time
-	maxWaitTime time.Duration
-	e           event
-}
-
-func (w *EngineWaiter) isExpired(t time.Time) bool {
-	return w.since.Sub(t) > w.maxWaitTime
 }
