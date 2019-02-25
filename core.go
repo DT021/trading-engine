@@ -134,10 +134,12 @@ func (c *Engine) logError(err error) {
 }
 
 func (c *Engine) shutDown() {
+
 	c.BrokerConnector.UnSubscribeEvents()
 	for _, s := range c.StrategyMap {
 		s.Finish()
 	}
+
 
 }
 
