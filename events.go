@@ -127,6 +127,16 @@ func (c *OrderCancelEvent) getName() string {
 	return "OrderCancelEvent"
 }
 
+type OrderCancelRejectEvent struct {
+	BaseEvent
+	OrdId string
+	Reason string
+}
+
+func (c *OrderCancelRejectEvent) getName() string {
+	return "OrderCancelRejectEvent"
+}
+
 type OrderCancelRequestEvent struct {
 	BaseEvent
 	OrdId string
@@ -144,6 +154,16 @@ type OrderReplaceRequestEvent struct {
 
 func (c *OrderReplaceRequestEvent) getName() string {
 	return "OrderReplaceRequestEvent"
+}
+
+type OrderReplaceRejectEvent struct {
+	BaseEvent
+	OrdId string
+	Reason string
+}
+
+func (c *OrderReplaceRejectEvent) getName() string {
+	return "OrderReplaceRejectEvent"
 }
 
 type OrderReplacedEvent struct {

@@ -176,7 +176,6 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 			StateUpdTime:  rejectEvent.getTime(),
 		}
 		b.executeBrokerEvent(&rejectEvent)
-
 		return
 	}
 
@@ -199,7 +198,7 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 
 	b.orders[e.LinkedOrder.Id] = &simBrokerOrder{
 		Order:         e.LinkedOrder,
-		BrokerState:   ConfirmedOrder,
+		BrokerState:   NewOrder,
 		BrokerExecQty: 0,
 		StateUpdTime:  confEvent.getTime(),
 	}
@@ -212,65 +211,139 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 	b.mpMutext.Lock()
 	defer b.mpMutext.Unlock()
+	newEvTime := e.getTime().Add(time.Duration(b.delay) * time.Millisecond)
 
-	err := b.validateOrderModificationRequest(e.OrdId, "cancel")
-	if err != nil {
-		go b.newError(err)
+	if _, ok := b.orders[e.OrdId]; !ok {
+		e := OrderCancelRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Broker can't find order with ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
 		return
 	}
+
+	if b.orders[e.OrdId].BrokerState == CanceledOrder{
+		e := OrderCancelRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is already canceled ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
+	if b.orders[e.OrdId].BrokerState == NewOrder{
+		e := OrderCancelRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is not confirmed yet ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
+	if b.orders[e.OrdId].BrokerState == FilledOrder{
+		e := OrderCancelRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is already filled ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
 	orderCancelE := OrderCancelEvent{
 		OrdId:     e.OrdId,
-		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
+		BaseEvent: be(newEvTime, e.Symbol),
 	}
 	b.executeBrokerEvent(&orderCancelE)
 
 }
 
 func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
-	err := b.validateOrderModificationRequest(e.OrdId, "replace")
-	if err != nil {
-		go b.newError(err)
+	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
+	newEvTime := e.getTime().Add(time.Duration(b.delay) * time.Millisecond)
+
+	if _, ok := b.orders[e.OrdId]; !ok {
+		e := OrderReplaceRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Broker can't find order with ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
+	if b.orders[e.OrdId].BrokerState == CanceledOrder{
+		e := OrderReplaceRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is already canceled ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
+	if b.orders[e.OrdId].BrokerState == NewOrder{
+		e := OrderReplaceRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is not confirmed yet ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
+		return
+	}
+
+	if b.orders[e.OrdId].BrokerState == FilledOrder{
+		e := OrderReplaceRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason:"Order is already filled ID: "+e.OrdId,
+		}
+		b.executeBrokerEvent(&e)
 		return
 	}
 
 	if math.IsNaN(e.NewPrice) || e.NewPrice == 0 {
-		err := ErrInvalidRequestPrice{
-			Price:   e.NewPrice,
-			Message: fmt.Sprintf("Can't replace order: %v", e.OrdId),
-			Caller:  "Sim Broker",
+		e := OrderReplaceRejectEvent{
+			BaseEvent: be(newEvTime, e.Symbol),
+			OrdId:e.OrdId,
+			Reason: fmt.Sprintf("Replace price %v is not valid", e.NewPrice),
 		}
-		go b.newError(&err)
+		b.executeBrokerEvent(&e)
 		return
-
 	}
 
 	replacedEvent := OrderReplacedEvent{
 		OrdId:     e.OrdId,
 		NewPrice:  e.NewPrice,
-		BaseEvent: be(e.Time.Add(time.Duration(b.delay)*time.Millisecond), e.Symbol),
+		BaseEvent: be(newEvTime, e.Symbol),
 	}
-
 	b.executeBrokerEvent(&replacedEvent)
-
 }
 
-func (b *simBrokerWorker) validateOrderModificationRequest(ordId string, modType string) error {
+
+
+func (b *simBrokerWorker) checkModificationForReject(ordId string) error {
 
 	if _, ok := b.orders[ordId]; !ok {
 		err := ErrOrderNotFoundInOrdersMap{
 			OrdId:   ordId,
-			Message: fmt.Sprintf("Can't %v order.", modType),
+			Message: fmt.Sprintf("Can't %v order.", "re"),
 			Caller:  "Sim Broker",
 		}
 		return &err
 
 	}
-	if b.orders[ordId].State != ConfirmedOrder && b.orders[ordId].State != PartialFilledOrder {
+
+	if b.orders[ordId].BrokerState != ConfirmedOrder && b.orders[ordId].BrokerState != PartialFilledOrder {
 		err := ErrUnexpectedOrderState{
 			OrdId:         ordId,
 			ActualState:   string(b.orders[ordId].State),
 			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
-			Message:       fmt.Sprintf("Can't %v order.", modType),
+			Message:       fmt.Sprintf("Can't %v order.", "re"),
 			Caller:        "Sim Broker",
 		}
 		return &err
@@ -865,7 +938,9 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 		if !ok {
 			panic("Confirmation of not existing order")
 		}
-		ord.BrokerState = RejectedOrder
+		if ord.BrokerState != ConfirmedOrder {
+			ord.BrokerState = RejectedOrder
+		}
 
 	}
 

@@ -100,7 +100,7 @@ func TestEngine_Run(t *testing.T) {
 			break
 		}
 
-		broker := newTestSimulatedBroker()
+		broker := newTestSimBroker()
 		md := newTestBTM()
 
 		strategyMap := make(map[string]IStrategy)
