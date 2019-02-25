@@ -158,7 +158,6 @@ LOOP:
 		case e := <-c.mdChan:
 			switch i := e.(type) {
 			case *NewTickEvent:
-				//fmt.Println("Tick")
 				c.eTick(i)
 			case *EndOfDataEvent:
 				break LOOP

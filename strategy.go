@@ -44,7 +44,7 @@ type BasicStrategy struct {
 	NPeriods            int
 	requestsChan        chan event
 	brokerChan          <-chan event
-	brokerReady         <-chan struct{}
+	brokerReady         chan struct{}
 	brokerNotifyChan    chan *BrokerNotifyEvent
 	terminationChan     chan struct{}
 	waitingConfirmation map[string]struct{}
@@ -246,7 +246,7 @@ func (b *BasicStrategy) LastCandleOpen() float64 {
 	return b.lastCandleOpen
 }
 
-func (b *BasicStrategy) TickIsValid(t *marketdata.Tick) bool {
+func (b *BasicStrategy) tickIsValid(t *marketdata.Tick) bool {
 	return true
 }
 
@@ -373,7 +373,7 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	if e == nil {
 		return
 	}
-	if !b.TickIsValid(e.Tick) || e.Tick == nil {
+	if !b.tickIsValid(e.Tick) || e.Tick == nil {
 		return
 	}
 
@@ -415,7 +415,7 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 		if v == nil {
 			continue
 		}
-		if !b.TickIsValid(v) {
+		if !b.tickIsValid(v) {
 			continue
 		}
 

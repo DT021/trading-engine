@@ -94,8 +94,6 @@ func (b *SimBroker) IsSimulated() bool {
 	return true
 }
 
-
-
 type SimulatedBrokerWorker struct {
 	symbol string
 
@@ -312,6 +310,9 @@ func (b *SimulatedBrokerWorker) OnTick(tick *marketdata.Tick) {
 
 	for _, o := range b.orders {
 		if o.Symbol == tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+			if o.StateUpdTime.After(tick.Datetime) {
+				continue
+			}
 			e := b.checkOrderExecutionOnTick(o, tick)
 			if e != nil {
 				genEvents = append(genEvents, e)
