@@ -4,7 +4,7 @@ package engine
 /*type DummyStrategy struct {
 }
 
-func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
+func (d *DummyStrategy) onTick(b *BasicStrategy, tick *marketdata.Tick) {
 
 }
 
@@ -685,7 +685,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*150.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 150.0*13.0, st.currentTrade.MarketValue)
-		assert.Equal(t, 150.0*13-expectionOpenPrice*150, st.currentTrade.OpenPnL)
+		assert.Equal(t, 150.0*13-expectionOpenPrice*150, st.currentTrade.openPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -708,7 +708,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*250.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 250.0*13.5, st.currentTrade.MarketValue)
-		assert.Equal(t, 250.0*13.5-expectionOpenPrice*250, st.currentTrade.OpenPnL)
+		assert.Equal(t, 250.0*13.5-expectionOpenPrice*250, st.currentTrade.openPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -731,7 +731,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*300.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 300.0*11.25, st.currentTrade.MarketValue)
-		assert.Equal(t, 300.0*11.25-expectionOpenPrice*300, st.currentTrade.OpenPnL)
+		assert.Equal(t, 300.0*11.25-expectionOpenPrice*300, st.currentTrade.openPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -891,7 +891,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, ClosedTrade, prevPos.Type)
 		assert.Equal(t, prevClosedPnL+(order.ExecPrice-prevOpenPrice)*float64(order.ExecQty), prevPos.ClosedPnL)
 		assert.Equal(t, 0.0, prevPos.OpenValue)
-		assert.Equal(t, 0.0, prevPos.OpenPnL)
+		assert.Equal(t, 0.0, prevPos.openPnL)
 		assert.Equal(t, 0.0, prevPos.MarketValue)
 
 		//Complete order fill. Flat position -> short position
@@ -899,7 +899,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, ShortTrade, st.currentTrade.Type)
 		assert.Equal(t, -350, st.Position())
 		assert.Equal(t, 18.22, st.currentTrade.OpenPrice)
-		assert.Equal(t, 0.0, st.currentTrade.OpenPnL)
+		assert.Equal(t, 0.0, st.currentTrade.openPnL)
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 
 		assert.Equal(t, order.Id, st.currentTrade.Id)
@@ -930,7 +930,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Len(t, st.currentTrade.FilledOrders, 2)
 		assert.Equal(t, (prevValue+order.ExecPrice*float64(order.ExecQty))/float64(st.currentTrade.Qty), st.currentTrade.OpenPrice)
 		assert.Equal(t, 450.0*20.01, st.currentTrade.MarketValue)
-		assert.Equal(t, st.currentTrade.OpenValue-st.currentTrade.MarketValue, st.currentTrade.OpenPnL)
+		assert.Equal(t, st.currentTrade.OpenValue-st.currentTrade.MarketValue, st.currentTrade.openPnL)
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 	}
 
@@ -956,7 +956,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Len(t, st.currentTrade.FilledOrders, 0)
 
 		assert.Equal(t, (prevOpenPrice-19.01)*450, st.closedTrades[1].ClosedPnL)
-		assert.Equal(t, 0.0, st.closedTrades[1].OpenPnL)
+		assert.Equal(t, 0.0, st.closedTrades[1].openPnL)
 		assert.Equal(t, 0.0, st.closedTrades[1].OpenValue)
 		assert.Equal(t, 0.0, st.closedTrades[1].MarketValue)
 	}

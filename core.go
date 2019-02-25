@@ -14,70 +14,12 @@ const (
 	MarketReplayMode EngineMode = "MarketReplayMode"
 )
 
-type Portfolio struct {
-	trades []*Trade
-	mut    *sync.RWMutex
-}
-
-func newPortfolio() *Portfolio {
-	p := Portfolio{}
-	p.mut = &sync.RWMutex{}
-	return &p
-}
-
-func (p *Portfolio) onNewTrade(t *Trade) {
-	p.mut.Lock()
-	p.trades = append(p.trades, t)
-	p.mut.Unlock()
-}
-
-func (p *Portfolio) TotalPnL() float64 {
-	p.mut.RLock()
-	defer p.mut.RUnlock()
-	pnl := 0.0
-	for _, pos := range p.trades {
-		if pos.Type == FlatTrade {
-			continue
-		}
-		pnl += pos.ClosedPnL + pos.OpenPnL
-	}
-	return pnl
-}
-
-func (p *Portfolio) OpenPnL() float64 {
-	p.mut.RLock()
-	defer p.mut.RUnlock()
-	pnl := 0.0
-	for _, pos := range p.trades {
-		if pos.Type == FlatTrade || pos.Type == ClosedTrade {
-			continue
-		}
-		pnl += pos.OpenPnL
-	}
-	return pnl
-}
-
-func (p *Portfolio) ClosedPnL() float64 {
-	p.mut.RLock()
-	defer p.mut.RUnlock()
-	pnl := 0.0
-	for _, pos := range p.trades {
-		if pos.Type == FlatTrade {
-			continue
-		}
-		pnl += pos.ClosedPnL
-	}
-	return pnl
-
-}
-
 type Engine struct {
 	Symbols             []string
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]IStrategy
-
-	portfolio *Portfolio
+	portfolio           *portfolioHandler
 
 	terminationChan chan struct{}
 	portfolioChan   chan *PortfolioNewPositionEvent
@@ -90,7 +32,6 @@ type Engine struct {
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode) *Engine {
 
-	mdChan := make(chan event)
 	errChan := make(chan error)
 
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
@@ -101,20 +42,36 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		symbols = append(symbols, k)
 	}
 
-	broker.Connect(errChan, symbols)
+	broker.Init(errChan, symbols)
 
 	for _, k := range symbols {
-		brokChan := make(chan event)
-		requestChan := make(chan event)
-		readyMdChan := make(chan struct{})
-		brokNotifyChan := make(chan *BrokerNotifyEvent)
-		sp[k].Connect(errChan, brokChan, requestChan, brokNotifyChan, readyMdChan, portfolioChan)
+		brokerChan := make(chan event)
+		signalsChan := make(chan event)
+		brokerNotifierChan := make(chan struct{})
+		notifyBrokerChan := make(chan *BrokerNotifyEvent)
+		cc := CoreStrategyChannels{
+			errors:         errChan,
+			signals:        signalsChan,
+			broker:         brokerChan,
+			portfolio:      portfolioChan,
+			notifyBroker:   notifyBrokerChan,
+			brokerNotifier: brokerNotifierChan,
+		}
+		sp[k].Connect(cc)
 		sp[k].setPortfolio(portfolio)
 
-		broker.SetSymbolChannels(k, requestChan, brokChan, readyMdChan, brokNotifyChan)
+		bs := BrokerSymbolChannels{
+			signals:        signalsChan,
+			broker:         brokerChan,
+			brokerNotifier: brokerNotifierChan,
+			notifyBroker:   notifyBrokerChan,
+		}
+
+		broker.SetSymbolChannels(k, bs)
 
 	}
 
+	mdChan := make(chan event)
 	md.Connect(errChan, mdChan)
 	md.SetSymbols(symbols)
 	eng := Engine{

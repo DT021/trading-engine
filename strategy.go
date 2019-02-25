@@ -16,6 +16,41 @@ const (
 	orderidLayout = "2006-01-02|15:04:05.000"
 )
 
+type CoreStrategyChannels struct {
+	errors         chan error
+	signals        chan event
+	broker         chan event
+	portfolio      chan *PortfolioNewPositionEvent
+	notifyBroker   chan *BrokerNotifyEvent
+	brokerNotifier chan struct{}
+}
+
+func (c *CoreStrategyChannels) isValid() bool {
+	if c.errors == nil {
+		return false
+	}
+
+	if c.signals == nil {
+		return false
+	}
+	if c.broker == nil {
+		return false
+	}
+	if c.portfolio == nil {
+		return false
+	}
+
+	if c.notifyBroker == nil {
+		return false
+	}
+
+	if c.brokerNotifier == nil {
+		return false
+	}
+
+	return true
+}
+
 type IStrategy interface {
 	onCandleOpenHandler(e *CandleOpenEvent)
 	onCandleCloseHandler(e *CandleCloseEvent)
@@ -23,15 +58,13 @@ type IStrategy interface {
 	onTickHistoryHandler(e *TickHistoryEvent) []*event
 	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
 
-	onTimerTickHandler(e *TimerTickEvent)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
 	Run()
 	Finish()
 
-	Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
-		notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}, portfChan chan *PortfolioNewPositionEvent)
-	setPortfolio(p *Portfolio)
+	Connect(ch CoreStrategyChannels)
+	setPortfolio(p *portfolioHandler)
 }
 
 type IUserStrategy interface {
@@ -39,16 +72,14 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
-	portfolio           *Portfolio
-	connected           bool
-	Symbol              string
-	Name                string
-	NPeriods            int
-	requestsChan        chan event
-	brokerChan          <-chan event
-	portfolioChan       chan *PortfolioNewPositionEvent
-	brokerReady         chan struct{}
-	brokerNotifyChan    chan *BrokerNotifyEvent
+	portfolio *portfolioHandler
+	connected bool
+	Symbol    string
+	Name      string
+	NPeriods  int
+
+	ch CoreStrategyChannels
+
 	terminationChan     chan struct{}
 	waitingConfirmation map[string]struct{}
 	waitingN            int32
@@ -75,15 +106,12 @@ func (b *BasicStrategy) init() {
 	}
 }
 
-func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
-	notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}, portfChan chan *PortfolioNewPositionEvent) {
+func (b *BasicStrategy) Connect(ch CoreStrategyChannels) {
+	if !ch.isValid(){
+		panic("Core chans are not valid. Some of them is nil")
+	}
 
-	b.errorsChan = errorsChan
-	b.brokerChan = brokerChan
-	b.requestsChan = requestChan
-	b.brokerReady = brokReadyChan
-	b.brokerNotifyChan = notChan
-	b.portfolioChan = portfChan
+	b.ch = ch
 	b.terminationChan = make(chan struct{})
 	b.waitingConfirmation = make(map[string]struct{})
 	b.mut = &sync.Mutex{}
@@ -91,12 +119,12 @@ func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, re
 
 }
 
-func (b *BasicStrategy) setPortfolio(p *Portfolio) {
+func (b *BasicStrategy) setPortfolio(p *portfolioHandler) {
 	b.portfolio = p
 }
 
-func (b *BasicStrategy) GetTotalPnL() float64{
-	return b.portfolio.TotalPnL()
+func (b *BasicStrategy) GetTotalPnL() float64 {
+	return b.portfolio.totalPnL()
 }
 
 func (b *BasicStrategy) Finish() {
@@ -132,7 +160,7 @@ func (b *BasicStrategy) Run() {
 Loop:
 	for {
 		select {
-		case e := <-b.brokerChan:
+		case e := <-b.ch.broker:
 			b.proxyEvent(e)
 		case <-b.terminationChan:
 			break Loop
@@ -375,8 +403,8 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		//fmt.Println("Wait for mergeng events")
 	}
 	//fmt.Println("No waiters.\n Waiting for broker sig")
-	b.requestsChan <- e
-	<-b.brokerReady
+	b.ch.signals <- e
+	<-b.ch.brokerNotifier
 	//fmt.Println("Broker sig is OK")
 
 	b.mut.Lock()
@@ -482,16 +510,16 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		b.closedTrades = append(b.closedTrades, b.currentTrade)
 		b.currentTrade = newPos
 		fmt.Println("New trade to portf event")
-		b.portfolioChan <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+		b.ch.portfolio <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
 
 	} else {
 		if prevState == FlatTrade {
 			fmt.Println("New trade to portf event")
-			b.portfolioChan <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+			b.ch.portfolio <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
 		}
 	}
 
-	b.brokerNotifyChan <- &BrokerNotifyEvent{be(e.Time, e.Symbol), e}
+	b.ch.notifyBroker <- &BrokerNotifyEvent{be(e.Time, e.Symbol), e}
 
 }
 
@@ -569,7 +597,7 @@ func (b *BasicStrategy) error(err error) {
 }
 
 func (b *BasicStrategy) newEvent(e event) {
-	b.requestsChan <- e
+	b.ch.signals <- e
 }
 
 func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {

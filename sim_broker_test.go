@@ -15,7 +15,7 @@ func newTestSimulatedBroker() *SimBroker {
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
 
-	b.Connect(errChan, []string{""})
+	b.Init(errChan, []string{""})
 
 	return &b
 }/*
@@ -63,7 +63,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test normal new order")
 	{
 		order := newTestOrder(10.1, OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{
+		b.onNewOrder(&NewOrderEvent{
 			LinkedOrder: order,
 			BaseEvent:   be(order.Time, order.Symbol)})
 
@@ -84,7 +84,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test new order with duplicate ID")
 	{
 		order := newTestOrder(10.1, OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{
+		b.onNewOrder(&NewOrderEvent{
 			LinkedOrder: order,
 			BaseEvent:   be(order.Time, order.Symbol),
 		})
@@ -107,7 +107,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	t.Log("Sim broker: test new order with wrong params")
 	{
 		order := newTestOrder(math.NaN(), OrderSell, 100, "id1")
-		b.OnNewOrder(&NewOrderEvent{
+		b.onNewOrder(&NewOrderEvent{
 			LinkedOrder: order,
 			BaseEvent:   be(order.Time, order.Symbol),
 		})
@@ -135,7 +135,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 	t.Log("Sim Broker: normal cancel request")
 	{
 		order := newTestOrder(15, OrderSell, 100, "1")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
 		v := <-b.eventChan
 		switch v.(type) {
@@ -151,7 +151,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 
 		order.State = ConfirmedOrder // Mock it
 
-		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: order.Id})
+		b.onCancelRequest(&OrderCancelRequestEvent{OrdId: order.Id})
 
 		v = <-b.eventChan
 		switch v.(type) {
@@ -175,7 +175,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 			ordId = k
 		}
 
-		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: ordId})
+		b.onCancelRequest(&OrderCancelRequestEvent{OrdId: ordId})
 		v := <-b.errChan
 		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
 
@@ -183,7 +183,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 
 	t.Log("Sim broker: cancel not existing order")
 	{
-		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "Not existing ID"})
+		b.onCancelRequest(&OrderCancelRequestEvent{OrdId: "Not existing ID"})
 		v := <-b.errChan
 		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
 	}
@@ -191,7 +191,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 	t.Log("Sim broker: cancel order with not confirmed status")
 	{
 		order := newTestOrder(15, OrderSell, 100, "id2")
-		b.OnNewOrder(&NewOrderEvent{
+		b.onNewOrder(&NewOrderEvent{
 			LinkedOrder: order,
 			BaseEvent:   be(order.Time, order.Symbol),
 		})
@@ -204,7 +204,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", v.getName())
 		}
 
-		b.OnCancelRequest(&OrderCancelRequestEvent{OrdId: "id2"})
+		b.onCancelRequest(&OrderCancelRequestEvent{OrdId: "id2"})
 		err := <-b.errChan
 		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
@@ -217,7 +217,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	t.Log("Sim Broker: normal replace request")
 	{
 		order := newTestOrder(15, OrderSell, 100, "1")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
 		v := <-b.eventChan
 		switch v.(type) {
@@ -233,7 +233,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 
 		order.State = ConfirmedOrder // Mock it
 
-		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 15.5})
+		b.onReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 15.5})
 
 		assert.Len(t, b.confirmedOrders, 1)
 		assert.Len(t, b.canceledOrders, 0)
@@ -255,7 +255,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	t.Log("Sim Broker: replace request with invalid price")
 	{
 		order := newTestOrder(15, OrderSell, 100, "1_")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order})
+		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
 		v := <-b.eventChan
 		switch v.(type) {
@@ -271,7 +271,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 
 		order.State = ConfirmedOrder // Mock it
 
-		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 0})
+		b.onReplaceRequest(&OrderReplaceRequestEvent{OrdId: order.Id, NewPrice: 0})
 
 		assert.Len(t, b.confirmedOrders, 2)
 		assert.Len(t, b.canceledOrders, 0)
@@ -286,7 +286,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 
 	t.Log("Sim broker: replace not existing order")
 	{
-		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: "Not existing ID", NewPrice: 15.0})
+		b.onReplaceRequest(&OrderReplaceRequestEvent{OrdId: "Not existing ID", NewPrice: 15.0})
 		v := <-b.errChan
 		assert.IsType(t, &ErrOrderNotFoundInConfirmedMap{}, v)
 	}
@@ -294,7 +294,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	t.Log("Sim broker: replace order with not confirmed status")
 	{
 		order := newTestOrder(15, OrderSell, 100, "id2")
-		b.OnNewOrder(&NewOrderEvent{LinkedOrder: order, BaseEvent: be(order.Time, order.Symbol),})
+		b.onNewOrder(&NewOrderEvent{LinkedOrder: order, BaseEvent: be(order.Time, order.Symbol),})
 
 		v := <-b.eventChan
 		switch v.(type) {
@@ -304,7 +304,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", v.getName())
 		}
 
-		b.OnReplaceRequest(&OrderReplaceRequestEvent{OrdId: "id2"})
+		b.onReplaceRequest(&OrderReplaceRequestEvent{OrdId: "id2"})
 		err := <-b.errChan
 		assert.IsType(t, &ErrUnexpectedOrderState{}, err)
 
@@ -2980,7 +2980,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	symbol := order1.Symbol
 
-	t.Log("Sim Broker: OnTick. Reaction on broken tick. Error expected")
+	t.Log("Sim Broker: onTick. Reaction on broken tick. Error expected")
 	{
 		tick := marketdata.Tick{
 			Symbol:    "Test",
@@ -2997,7 +2997,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.False(t, b.tickIsValid(&tick))
 
 		prevLen := len(b.confirmedOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 		assert.Len(t, b.confirmedOrders, prevLen)
 		assertNoEventsGeneratedByBroker(t, b)
 
@@ -3006,7 +3006,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.IsType(t, &ErrBrokenTick{}, err)
 	}
 
-	t.Log("Sim Broker: OnTick. First tick - execute only market")
+	t.Log("Sim Broker: onTick. First tick - execute only market")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3022,7 +3022,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 		prevLen := len(b.confirmedOrders)
 		prevLenFills := len(b.filledOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -3046,7 +3046,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	t.Log("Sim Broker: OnTick. Second tick - execute nothing")
+	t.Log("Sim Broker: onTick. Second tick - execute nothing")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3060,14 +3060,14 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 9, 30, 1, 0, time.UTC),
 		}
 		prevLen := len(b.confirmedOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 		assert.Len(t, b.confirmedOrders, prevLen)
 		assertNoErrorsGeneratedByBroker(t, b)
 		assertNoEventsGeneratedByBroker(t, b)
 
 	}
 
-	t.Log("Sim Broker: OnTick. Third tick - execute only sell limit")
+	t.Log("Sim Broker: onTick. Third tick - execute only sell limit")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3082,7 +3082,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		}
 		prevLen := len(b.confirmedOrders)
 		prevLenFills := len(b.filledOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -3105,7 +3105,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	t.Log("Sim Broker: OnTick. Forth tick - execute on open orders")
+	t.Log("Sim Broker: onTick. Forth tick - execute on open orders")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3120,7 +3120,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		}
 		prevLen := len(b.confirmedOrders)
 		prevLenFills := len(b.filledOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -3170,7 +3170,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	t.Log("Sim Broker: OnTick. Fifth tick - execute stop")
+	t.Log("Sim Broker: onTick. Fifth tick - execute stop")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3185,7 +3185,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		}
 		prevLen := len(b.confirmedOrders)
 		prevLenFills := len(b.filledOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -3209,7 +3209,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	t.Log("Sim Broker: OnTick. Sixth tick - execute one on close and cancel another")
+	t.Log("Sim Broker: onTick. Sixth tick - execute one on close and cancel another")
 	{
 		tick := marketdata.Tick{
 			Symbol:symbol,
@@ -3224,7 +3224,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		}
 		prevLen := len(b.confirmedOrders)
 		prevLenFills := len(b.filledOrders)
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -3273,7 +3273,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	t.Log("Sim Broker: OnTick. React when we don't have confirmed orders")
+	t.Log("Sim Broker: onTick. React when we don't have confirmed orders")
 	{
 		assert.Len(t, b.confirmedOrders, 0)
 		tick := marketdata.Tick{
@@ -3288,7 +3288,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 16, 01, 1, 0, time.UTC),
 		}
 
-		b.OnTick(&tick)
+		b.onTick(&tick)
 
 		assertNoErrorsGeneratedByBroker(t, b)
 		assertNoEventsGeneratedByBroker(t, b)
