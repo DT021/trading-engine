@@ -15,11 +15,11 @@ const (
 )
 
 type Engine struct {
-	Symbols             []string
-	BrokerConnector     IBroker
-	MarketDataConnector IMarketData
-	StrategyMap         map[string]IStrategy
-	portfolio           *portfolioHandler
+	symbols       []string
+	broker        IBroker
+	md            IMarketData
+	strategiesMap map[string]IStrategy
+	portfolio     *portfolioHandler
 
 	terminationChan chan struct{}
 	portfolioChan   chan *PortfolioNewPositionEvent
@@ -72,15 +72,15 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 	}
 
 	mdChan := make(chan event)
-	md.Connect(errChan, mdChan)
+	md.Init(errChan, mdChan)
 	md.SetSymbols(symbols)
 	eng := Engine{
-		Symbols:             symbols,
-		BrokerConnector:     broker,
-		MarketDataConnector: md,
-		StrategyMap:         sp,
-		errChan:             errChan,
-		marketDataChan:      mdChan,
+		symbols:        symbols,
+		broker:         broker,
+		md:             md,
+		strategiesMap:  sp,
+		errChan:        errChan,
+		marketDataChan: mdChan,
 	}
 
 	eng.engineMode = mode
@@ -93,12 +93,10 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 }
 
 func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
-	st, ok := c.StrategyMap[symbol]
-
+	st, ok := c.strategiesMap[symbol]
 	if !ok {
 		panic("Strategy for %v not found in map")
 	}
-
 	return st
 }
 
@@ -107,15 +105,14 @@ func (c *Engine) prepareLogger() {
 	if err != nil {
 		panic(err)
 	}
-
 	c.log.SetOutput(f)
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 	/*st := c.getSymbolStrategy(e.Symbol)
 
-	if c.BrokerConnector.IsSimulated() {
-		c.BrokerConnector.OnCandleOpen(e)
+	if c.broker.IsSimulated() {
+		c.broker.OnCandleOpen(e)
 	}
 
 	st.onCandleOpenHandler(e)*/
@@ -126,8 +123,8 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
 	/*st := c.getSymbolStrategy(e.Symbol)
 
-	if c.BrokerConnector.IsSimulated() {
-		c.BrokerConnector.OnCandleClose(e)
+	if c.broker.IsSimulated() {
+		c.broker.OnCandleClose(e)
 	}
 
 	st.onCandleCloseHandler(e)*/
@@ -158,12 +155,10 @@ func (c *Engine) logError(err error) {
 }
 
 func (c *Engine) shutDown() {
-
-	c.BrokerConnector.UnSubscribeEvents()
-	for _, s := range c.StrategyMap {
+	c.broker.UnSubscribeEvents()
+	for _, s := range c.strategiesMap {
 		s.Finish()
 	}
-
 	fmt.Println(len(c.portfolio.trades))
 
 }
@@ -173,14 +168,14 @@ func (c *Engine) updatePortfolio(e *PortfolioNewPositionEvent) {
 }
 
 func (c *Engine) runStrategies() {
-	for _, s := range c.StrategyMap {
+	for _, s := range c.strategiesMap {
 		go s.Run()
 	}
 }
 
 func (c *Engine) Run() {
-	c.MarketDataConnector.Run()
-	c.BrokerConnector.SubscribeEvents()
+	c.md.Run()
+	c.broker.SubscribeEvents()
 	c.runStrategies()
 LOOP:
 	for {

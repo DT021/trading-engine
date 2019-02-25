@@ -3,6 +3,7 @@ package engine
 import (
 	"alex/marketdata"
 	"bufio"
+	"fmt"
 	"github.com/pkg/errors"
 	"hash/fnv"
 	"math"
@@ -16,7 +17,8 @@ import (
 
 type IMarketData interface {
 	Run()
-	Connect(errChan chan error, eventChan chan event)
+	Connect()
+	Init(errChan chan error, mdChan chan event)
 	SetSymbols(symbols []string)
 	GetFirstTime() time.Time
 }
@@ -31,9 +33,10 @@ type BTM struct {
 	FromDate         time.Time
 	ToDate           time.Time
 	UsePrepairedData bool
-	errChan          chan error
-	eventChan        chan event
-	Storage          marketdata.Storage
+
+	errChan chan error
+	mdChan  chan event
+	Storage marketdata.Storage
 
 }
 
@@ -41,16 +44,20 @@ func (m *BTM) SetSymbols(symbols []string) {
 	m.Symbols = symbols
 }
 
-func (m *BTM) Connect(errChan chan error, eventChan chan event) {
+func (m *BTM) Connect() {
+	fmt.Println("Backtest market data connected. ")
+}
+
+func (m *BTM) Init(errChan chan error, mdChan chan event) {
 	if errChan == nil {
 		panic("Error chan is nil")
 	}
 
-	if eventChan == nil {
+	if mdChan == nil {
 		panic("Event chan is nil")
 	}
 
-	m.eventChan = eventChan
+	m.mdChan = mdChan
 	m.errChan = errChan
 }
 
@@ -59,7 +66,7 @@ func (m *BTM) GetFirstTime() time.Time {
 }
 func (m *BTM) getFilename() (string, error) {
 	if len(m.Symbols) == 0 {
-		return "", errors.New("Symbols len is zero")
+		return "", errors.New("symbols len is zero")
 	}
 	sort.Strings(m.Symbols)
 	out := ""
@@ -165,10 +172,10 @@ func (m *BTM) newError(err error) {
 }
 
 func (m *BTM) newEvent(e event) {
-	if m.eventChan == nil {
+	if m.mdChan == nil {
 		panic("BTM event chan is nil")
 	}
-	m.eventChan <- e
+	m.mdChan <- e
 }
 
 func (m *BTM) prepairedDataExists() bool {

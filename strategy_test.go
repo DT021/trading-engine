@@ -369,7 +369,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 	/*defer func() {
 		close(st.errorsChan)
-		close(st.eventChan)
+		close(st.mdChan)
 	}()*///Todo почему после этого падает следующий тест???
 
 	/*ord := newTestOrder(100, OrderBuy, 100, "")

@@ -24,11 +24,11 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 	t.Log("Test connect simulated broker")
 	{
 
-		b := SimulatedBrokerWorker{}
+		b := simBrokerWorker{}
 		errChan := make(chan error)
-		eventChan := make(chan event)
+		mdChan := make(chan event)
 		mut := &sync.Mutex{}
-		b.Connect(errChan, eventChan, mut)
+		b.Connect(errChan, mdChan, mut)
 		order := newTestOrder(10, OrderSell, 10, "15")
 		b.filledOrders[order.Id] = order
 		b.canceledOrders[order.Id] = order
@@ -37,7 +37,7 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 		b.allOrders[order.Id] = order
 
 		assert.NotNil(t, b.errChan)
-		assert.NotNil(t, b.eventChan)
+		assert.NotNil(t, b.mdChan)
 	}
 
 	t.Log("Test in-build test simulated broker creator")
@@ -51,7 +51,7 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 		b.allOrders[order.Id] = order
 
 		assert.NotNil(t, b.errChan)
-		assert.NotNil(t, b.eventChan)
+		assert.NotNil(t, b.mdChan)
 
 	}
 
@@ -59,7 +59,7 @@ func TestSimulatedBroker_Connect(t *testing.T) {
 
 func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 	b := newTestSimulatedBroker()
-	eventChan := b.eventChan
+	mdChan := b.mdChan
 	t.Log("Sim broker: test normal new order")
 	{
 		order := newTestOrder(10.1, OrderSell, 100, "id1")
@@ -67,7 +67,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 			LinkedOrder: order,
 			BaseEvent:   be(order.Time, order.Symbol)})
 
-		v := <-eventChan
+		v := <-mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -93,7 +93,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 		assert.Len(t, b.rejectedOrders, 1)
 		assert.Len(t, b.allOrders, 1)
 
-		v := <-eventChan
+		v := <-mdChan
 		switch v.(type) {
 		case *OrderRejectedEvent:
 			assert.Equal(t, "Sim Broker: can't confirm order. Order with this ID already exists on broker side", v.(*OrderRejectedEvent).Reason)
@@ -116,7 +116,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 		assert.Len(t, b.rejectedOrders, 1)
 		assert.Len(t, b.allOrders, 1)
 
-		v := <-eventChan
+		v := <-mdChan
 		switch v.(type) {
 		case *OrderRejectedEvent:
 			assert.Equal(t, "Sim Broker: can't confirm order. Order is not valid", v.(*OrderRejectedEvent).Reason)
@@ -137,7 +137,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 		order := newTestOrder(15, OrderSell, 100, "1")
 		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
-		v := <-b.eventChan
+		v := <-b.mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -153,7 +153,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 
 		b.onCancelRequest(&OrderCancelRequestEvent{OrdId: order.Id})
 
-		v = <-b.eventChan
+		v = <-b.mdChan
 		switch v.(type) {
 		case *OrderCancelEvent:
 			t.Log("OK! Got OrderCancelEvent as expected")
@@ -196,7 +196,7 @@ func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 			BaseEvent:   be(order.Time, order.Symbol),
 		})
 
-		v := <-b.eventChan
+		v := <-b.mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -219,7 +219,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 		order := newTestOrder(15, OrderSell, 100, "1")
 		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
-		v := <-b.eventChan
+		v := <-b.mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -240,7 +240,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 		assert.Len(t, b.rejectedOrders, 0)
 		assert.Len(t, b.allOrders, 1)
 
-		v = <-b.eventChan
+		v = <-b.mdChan
 		switch e := v.(type) {
 		case *OrderReplacedEvent:
 			t.Log("OK! Got OrderReplacedEvent as expected")
@@ -257,7 +257,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 		order := newTestOrder(15, OrderSell, 100, "1_")
 		b.onNewOrder(&NewOrderEvent{LinkedOrder: order})
 
-		v := <-b.eventChan
+		v := <-b.mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -296,7 +296,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 		order := newTestOrder(15, OrderSell, 100, "id2")
 		b.onNewOrder(&NewOrderEvent{LinkedOrder: order, BaseEvent: be(order.Time, order.Symbol),})
 
-		v := <-b.eventChan
+		v := <-b.mdChan
 		switch v.(type) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
@@ -311,9 +311,9 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 	}
 }
 
-func assertNoEventsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
+func assertNoEventsGeneratedByBroker(t *testing.T, b *simBrokerWorker) {
 	select {
-	case v, ok := <-b.eventChan:
+	case v, ok := <-b.mdChan:
 		assert.False(t, ok)
 		if ok {
 			t.Errorf("ERROR! Expected no events. Found: %v", v)
@@ -324,7 +324,7 @@ func assertNoEventsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
 	}
 }
 
-func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
+func assertNoErrorsGeneratedByBroker(t *testing.T, b *simBrokerWorker) {
 	select {
 	case v, ok := <-b.errChan:
 		assert.False(t, ok)
@@ -337,10 +337,10 @@ func assertNoErrorsGeneratedByBroker(t *testing.T, b *SimulatedBrokerWorker) {
 	}
 }
 
-func getTestSimBrokerGeneratedEvent(b *SimulatedBrokerWorker) event {
+func getTestSimBrokerGeneratedEvent(b *simBrokerWorker) event {
 
 	select {
-	case v := <-b.eventChan:
+	case v := <-b.mdChan:
 		return v
 	case <-time.After(1 * time.Second):
 		return nil
@@ -348,7 +348,7 @@ func getTestSimBrokerGeneratedEvent(b *SimulatedBrokerWorker) event {
 	}
 }
 
-func getTestSimBrokerGeneratedErrors(b *SimulatedBrokerWorker) error {
+func getTestSimBrokerGeneratedErrors(b *simBrokerWorker) error {
 
 	select {
 	case v := <-b.errChan:

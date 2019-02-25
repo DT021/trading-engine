@@ -134,7 +134,7 @@ func newTestBTM() *BTM {
 	errChan := make(chan error)
 	eventChan := make(chan event)
 
-	b.Connect(errChan, eventChan)
+	b.Init(errChan, eventChan)
 
 	return &b
 }
@@ -209,7 +209,7 @@ func TestBTM_prepare(t *testing.T) {
 
 func assertNoEventsGeneratedByBTM(t *testing.T, b *BTM) {
 	select {
-	case v, ok := <-b.eventChan:
+	case v, ok := <-b.mdChan:
 		assert.False(t, ok)
 		if ok {
 			t.Errorf("ERROR! Expected no events. Found: %v", v)
@@ -235,7 +235,7 @@ func TestBTM_Run(t *testing.T) {
 LOOP:
 	for {
 		select {
-		case e := <-b.eventChan:
+		case e := <-b.mdChan:
 			i := e.(event)
 			totalE += 1
 			assert.False(t, i.getTime().Before(prevTime))
@@ -250,7 +250,7 @@ LOOP:
 		}
 	}
 
-	e := <-b.eventChan
+	e := <-b.mdChan
 	assert.NotNil(t, e)
 	assert.IsType(t, &EndOfDataEvent{}, e)
 
