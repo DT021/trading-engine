@@ -90,7 +90,6 @@ type BasicStrategy struct {
 	lastCandleOpen      float64
 	lastCandleOpenTime  time.Time
 
-	errorsChan     chan error
 	lastEventTime  time.Time
 	strategy       IUserStrategy
 	mostRecentTime time.Time
@@ -107,7 +106,7 @@ func (b *BasicStrategy) init() {
 }
 
 func (b *BasicStrategy) Connect(ch CoreStrategyChannels) {
-	if !ch.isValid(){
+	if !ch.isValid() {
 		panic("Core chans are not valid. Some of them is nil")
 	}
 
@@ -174,10 +173,6 @@ func (b *BasicStrategy) shutDown() {
 }
 
 func (b *BasicStrategy) OnCandleOpen() {
-
-}
-
-func (b *BasicStrategy) OnTick(tick *marketdata.Tick) {
 
 }
 
@@ -257,11 +252,23 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 func (b *BasicStrategy) CancelOrder(ordID string) error {
 	fmt.Println("Cancel order")
 	if ordID == "" {
-		return errors.New("Order Id not specified. ")
+		err := ErrOrderIdIncorrect{
+			OrdId:   ordID,
+			Message: "Id is empty. ",
+			Caller:  "CancelOrder func",
+		}
+		return &err
 	}
 
 	if !b.currentTrade.hasConfirmedOrderWithId(ordID) {
-		return errors.New("Order ID not found in confirmed orders. ")
+		err := ErrOrderNotFoundInConfirmedMap{
+			ErrOrderNotFoundInOrdersMap{
+				OrdId:   ordID,
+				Message: "Id is empty. ",
+				Caller:  "CancelOrder func",
+			},
+		}
+		return &err
 	}
 
 	cancelReq := OrderCancelRequestEvent{
@@ -271,13 +278,53 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 
 	reqID := "$CAN$" + ordID
 	if _, ok := b.waitingConfirmation[reqID]; ok {
-		return errors.New("Order is already waiting for conf. ")
+		return errors.New("Request is already waiting for conf. ")
 	} else {
 		b.waitingConfirmation[reqID] = struct{}{}
 		atomic.AddInt32(&b.waitingN, 1)
 	}
 
 	b.newEvent(&cancelReq)
+
+	return nil
+}
+
+func (b *BasicStrategy) ReplaceOrder(ordID string, newPrice float64) error {
+	if ordID == "" {
+		err := ErrOrderIdIncorrect{
+			OrdId:   ordID,
+			Message: "Id is empty. ",
+			Caller:  "ReplaceOrder func",
+		}
+		return &err
+	}
+
+	if !b.currentTrade.hasConfirmedOrderWithId(ordID) {
+		err := ErrOrderNotFoundInConfirmedMap{
+			ErrOrderNotFoundInOrdersMap{
+				OrdId:   ordID,
+				Message: "Id is empty. ",
+				Caller:  "ReplaceOrder func",
+			},
+		}
+		return &err
+	}
+
+	replaceReq := OrderReplaceRequestEvent{
+		OrdId:     ordID,
+		NewPrice:  newPrice,
+		BaseEvent: be(b.mostRecentTime, b.Symbol),
+	}
+
+	reqID := "$REP$" + ordID
+	if _, ok := b.waitingConfirmation[reqID]; ok {
+		return errors.New("Request is already waiting for conf. ")
+	} else {
+		b.waitingConfirmation[reqID] = struct{}{}
+		atomic.AddInt32(&b.waitingN, 1)
+	}
+
+	b.newEvent(&replaceReq)
 
 	return nil
 }
@@ -394,28 +441,22 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 	return nil
 }
 
-func (b *BasicStrategy) waitForConfiramtions() {
-
-}
-
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
-	for atomic.LoadInt32(&b.waitingN) > 0 {
-		//fmt.Println("Wait for mergeng events")
-	}
-	//fmt.Println("No waiters.\n Waiting for broker sig")
-	b.ch.signals <- e
-	<-b.ch.brokerNotifier
-	//fmt.Println("Broker sig is OK")
-
-	b.mut.Lock()
-	defer b.mut.Unlock()
-
 	if e == nil {
 		return
 	}
 	if !b.tickIsValid(e.Tick) || e.Tick == nil {
 		return
 	}
+
+	for atomic.LoadInt32(&b.waitingN) > 0 {
+
+	}
+	b.ch.signals <- e
+	<-b.ch.brokerNotifier
+
+	b.mut.Lock()
+	defer b.mut.Unlock()
 
 	b.mostRecentTime = e.Tick.Datetime
 
@@ -510,12 +551,12 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		b.closedTrades = append(b.closedTrades, b.currentTrade)
 		b.currentTrade = newPos
 		fmt.Println("New trade to portf event")
-		b.ch.portfolio <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+		b.notifyPortfolioAboutPosition(&PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade})
 
 	} else {
 		if prevState == FlatTrade {
 			fmt.Println("New trade to portf event")
-			b.ch.portfolio <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+			b.notifyPortfolioAboutPosition(&PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade})
 		}
 	}
 
@@ -558,13 +599,15 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
+	atomic.AddInt32(&b.waitingN, -1)
+	delete(b.waitingConfirmation, "&REP&"+e.OrdId)
+
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
 
 	if err != nil {
 		go b.error(err)
 	}
 
-	panic("Not implemented")
 }
 
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
@@ -591,13 +634,20 @@ func (b *BasicStrategy) onTimerTickHandler(e *TimerTickEvent) {
 //Private funcs to work with data
 
 func (b *BasicStrategy) error(err error) {
-	if b.errorsChan != nil {
-		b.errorsChan <- err
-	}
+	b.ch.errors <- err
 }
 
 func (b *BasicStrategy) newEvent(e event) {
-	b.ch.signals <- e
+	go func() {
+		b.ch.signals <- e
+	}()
+
+}
+
+func (b *BasicStrategy) notifyPortfolioAboutPosition(e *PortfolioNewPositionEvent) {
+	go func() {
+		b.ch.portfolio <- e
+	}()
 }
 
 func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {

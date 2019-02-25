@@ -1,10 +1,20 @@
 package engine
 
+import (
+	"alex/marketdata"
+	"fmt"
+	"github.com/stretchr/testify/assert"
+	"math"
+	"sync"
+	"testing"
+	"time"
+)
+
 //We use some dummy strategy for tests
-/*type DummyStrategy struct {
+type DummyStrategy struct {
 }
 
-func (d *DummyStrategy) onTick(b *BasicStrategy, tick *marketdata.Tick) {
+func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
 
 }
 
@@ -17,12 +27,22 @@ func newTestBasicStrategy() *BasicStrategy {
 
 	bs.init()
 	brokerChan := make(chan event)
-	requestChan := make(chan event)
-	notificationChan := make(chan *BrokerNotifyEvent)
-	brokReadyChan := make(chan struct{})
+	signalsChan := make(chan event)
+	notifyBrokerChan := make(chan *BrokerNotifyEvent, 100) //Just to make things simple. We dont want to read from it
+	brokerNotifierChan := make(chan struct{})
 	errorsChan := make(chan error)
+	portfolioChan := make(chan *PortfolioNewPositionEvent, 100)
 
-	bs.Connect(errorsChan, brokerChan, requestChan, notificationChan, brokReadyChan)
+	cc := CoreStrategyChannels{
+		errors:         errorsChan,
+		signals:        signalsChan,
+		broker:         brokerChan,
+		portfolio:      portfolioChan,
+		notifyBroker:   notifyBrokerChan,
+		brokerNotifier: brokerNotifierChan,
+	}
+
+	bs.Connect(cc)
 	return &bs
 }
 
@@ -73,7 +93,6 @@ func isTicksSorted(st IStrategy) bool {
 	return ok
 }
 
-/*
 func TestBasicStrategy_onTickHandler(t *testing.T) {
 	st := newTestBasicStrategy()
 
@@ -83,15 +102,14 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 
 		for _, t0 := range ticksEvents {
 			wg := &sync.WaitGroup{}
-			go func(){
+			go func() {
 				wg.Add(1)
-				st.brokerReady <- struct{}{}
-				t1 := <- st.requestsChan
-				assert.Equal(t, t0, t1)
+				st.onTickHandler(t0.(*NewTickEvent))
 				wg.Done()
 			}()
-
-			st.onTickHandler(t0.(*NewTickEvent))
+			t1 := <-st.ch.signals //Read is  necessary.
+			assert.Equal(t, t0, t1)
+			st.ch.brokerNotifier <- struct{}{}
 			wg.Wait()
 		}
 
@@ -106,8 +124,17 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		ticksEvents := genTickEvents(20)
 		oldestTime := ticksEvents[0].getTime()
 
-		for _, t := range ticksEvents {
-			st.onTickHandler(t.(*NewTickEvent))
+		for _, t0 := range ticksEvents {
+			wg := &sync.WaitGroup{}
+			go func() {
+				wg.Add(1)
+				st.onTickHandler(t0.(*NewTickEvent))
+				wg.Done()
+			}()
+			t1 := <-st.ch.signals //Read is  necessary.
+			assert.Equal(t, t0, t1)
+			st.ch.brokerNotifier <- struct{}{}
+			wg.Wait()
 		}
 
 		if len(st.Ticks) != 20 {
@@ -115,7 +142,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		}
 
 		if st.Ticks[0].Datetime != oldestTime {
-			t.Errorf("\t Expected: %s Got %s \tFirst stored tick time is wrong", oldestTime, st.Ticks[0].Datetime)
+			t.Errorf("Expected: %s\n Got %s First stored tick time is wrong", oldestTime, st.Ticks[0].Datetime)
 		}
 		assert.True(t, isTicksSorted(st))
 	}
@@ -124,6 +151,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 	{
 		lastListedTick := st.Ticks[len(st.Ticks)-1]
 		st.onTickHandler(nil)
+
 		assert.Equal(t, lastListedTick, st.Ticks[len(st.Ticks)-1], "Ticks are not the same")
 		assert.True(t, isTicksSorted(st))
 	}
@@ -136,20 +164,28 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		assert.True(t, isTicksSorted(st))
 	}
 
-}*/
-/*
+}
 
 func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 
 	histTicks := genTickArray(30)
-	//time.Sleep(time.Second * time.Duration(2))
 	liveTickEvents := genTickEvents(2)
-
 	st := newTestBasicStrategy()
 
 	t.Log("Add first live event")
 	{
-		st.onTickHandler(liveTickEvents[0].(*NewTickEvent))
+		t0 := liveTickEvents[0].(*NewTickEvent)
+		wg := &sync.WaitGroup{}
+		go func() {
+			wg.Add(1)
+			st.onTickHandler(t0)
+			wg.Done()
+		}()
+		t1 := <-st.ch.signals //Read is  necessary.
+		assert.Equal(t, t0, t1)
+		st.ch.brokerNotifier <- struct{}{}
+		wg.Wait()
+
 		assert.Equal(t, 1, len(st.Ticks))
 	}
 
@@ -165,8 +201,18 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 	t.Log("Add old live event")
 	{
 		tm := time.Now().Add(time.Minute * time.Duration(-5))
-		oldEvent := NewTickEvent{BaseEvent: be(tm, "TEST"), Tick: &marketdata.Tick{Datetime: tm}}
-		st.onTickHandler(&oldEvent)
+		oldEvent := &NewTickEvent{BaseEvent: be(tm, "TEST"), Tick: &marketdata.Tick{Datetime: tm}}
+
+		wg := &sync.WaitGroup{}
+		go func() {
+			wg.Add(1)
+			st.onTickHandler(oldEvent)
+			wg.Done()
+		}()
+		t1 := <-st.ch.signals //Read is  necessary.
+		assert.Equal(t, oldEvent, t1)
+		st.ch.brokerNotifier <- struct{}{}
+		wg.Wait()
 		assert.Equal(t, 20, len(st.Ticks))
 		assert.True(t, isTicksSorted(st))
 
@@ -177,7 +223,18 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 		liveTickEvents = genTickEvents(2)
 
 		for _, v := range liveTickEvents {
-			st.onTickHandler(v.(*NewTickEvent))
+			t0 := v.(*NewTickEvent)
+			wg := &sync.WaitGroup{}
+			go func() {
+				wg.Add(1)
+				st.onTickHandler(t0)
+				wg.Done()
+			}()
+			t1 := <-st.ch.signals //Read is  necessary.
+			assert.Equal(t, t0, t1)
+			st.ch.brokerNotifier <- struct{}{}
+			wg.Wait()
+
 		}
 
 		assert.True(t, isTicksSorted(st))
@@ -353,7 +410,7 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 
 func assertNoErrorsGeneratedByEvents(t *testing.T, st *BasicStrategy) {
 	select {
-	case v, ok := <-st.errorsChan:
+	case v, ok := <-st.ch.errors:
 		assert.False(t, ok)
 		if ok {
 			t.Error(v)
@@ -363,16 +420,25 @@ func assertNoErrorsGeneratedByEvents(t *testing.T, st *BasicStrategy) {
 	}
 }
 
+func getErrorsGeneratedByStrategy(st *BasicStrategy) error {
+	select {
+	case v := <-st.ch.errors:
+		return v
+	case <-time.After(time.Millisecond):
+		return nil
+	}
+}
+
 func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test orders flow in Basic Strategy")
 	st := newTestBasicStrategy()
 
 	/*defer func() {
-		close(st.errorsChan)
+		close(st.ch.errors)
 		close(st.mdChan)
 	}()*///Todo почему после этого падает следующий тест???
 
-	/*ord := newTestOrder(100, OrderBuy, 100, "")
+	ord := newTestOrder(100, OrderBuy, 100, "")
 
 	t.Log("Test new order with wrong params")
 	{
@@ -494,10 +560,8 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: "NotExistingID", BaseEvent: be(time.Now(), "TEST"),})
 
-		v := <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
-
-		assert.NotNil(t, v)
+		err := getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, err)
 
 	}
 
@@ -505,30 +569,24 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	{
 		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: "NotExistingID", BaseEvent: be(time.Now(), "TEST")})
 
-		v := <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
-
-		assert.NotNil(t, v)
+		err := getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, err)
 	}
 
 	t.Log("Test replace event with wrong ID")
 	{
 		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: "NotExistingID", NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
-		v := <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
-
-		assert.NotNil(t, v)
+		err := getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, err)
 	}
 
 	t.Log("Test reject event with wrong ID")
 	{
 		st.onOrderRejectedHandler(&OrderRejectedEvent{OrdId: "NotExistingID", Reason: "SomeReason", BaseEvent: be(time.Now(), "TEST"),})
 
-		v := <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
-
-		assert.NotNil(t, v)
+		err := getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, err)
 	}
 
 	t.Log("Test replace and cancel order with wrong status")
@@ -550,13 +608,13 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: ordTest.Id, NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
-		v := <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
+		v := getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, v)
 
 		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: ordTest.Id, BaseEvent: be(time.Now(), "TEST"),})
 
-		v = <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
+		v = getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, v)
 
 		assert.Equal(t, NewOrder, ordTest.State)
 
@@ -566,13 +624,13 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 
 		st.onOrderCancelHandler(&OrderCancelEvent{OrdId: ordTest.Id, BaseEvent: be(time.Now(), "TEST"),})
 
-		v = <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
+		v = getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, v)
 
 		st.onOrderReplacedHandler(&OrderReplacedEvent{OrdId: ordTest.Id, NewPrice: 10, BaseEvent: be(time.Now(), "TEST"),})
 
-		v = <-st.errorsChan
-		t.Logf("OK! Got exception: %v", v)
+		v = getErrorsGeneratedByStrategy(st)
+		assert.NotNil(t, v)
 
 		assert.Equal(t, RejectedOrder, ordTest.State)
 
@@ -581,26 +639,30 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 }
 
 func assertStrategyHasNewOrderEvent(t *testing.T, st *BasicStrategy) {
-	v, ok := <-st.requestsChan
-	if !ok {
-		t.Fatal("FATAL! Expected new order event.Didn't found any")
-	}
-	switch v.(type) {
-	case *NewOrderEvent:
-		t.Log("OK! Has new order event")
-	default:
-		t.Fatal("FATAL! New order event not produced")
+
+	select {
+	case v := <-st.ch.signals:
+		switch v.(type) {
+		case *NewOrderEvent:
+			t.Log("OK! Has new order event")
+		default:
+			t.Fatal("FATAL! New order event not produced")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("FATAL! New order event not produced. No events were found in signal chan")
+
+
 	}
 }
 
 func assertStrategyHasNoEvents(t *testing.T, st *BasicStrategy) {
 	select {
-	case v, ok := <-st.requestsChan:
+	case v, ok := <-st.ch.signals:
 		assert.False(t, ok)
 		if ok {
 			t.Errorf("ERROR! Expected no events. Found: %v", v)
 		}
-	default:
+	case <-time.After(time.Millisecond):
 		t.Log("OK! Events chan is empty")
 		break
 	}
@@ -614,7 +676,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		order := newTestOrder(10, OrderBuy, 100, "id1")
 
 		err := st.newOrder(order)
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
 		assertStrategyHasNewOrderEvent(t, st)
@@ -685,7 +747,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*150.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 150.0*13.0, st.currentTrade.MarketValue)
-		assert.Equal(t, 150.0*13-expectionOpenPrice*150, st.currentTrade.openPnL)
+		assert.Equal(t, 150.0*13-expectionOpenPrice*150, st.currentTrade.OpenPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -708,7 +770,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*250.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 250.0*13.5, st.currentTrade.MarketValue)
-		assert.Equal(t, 250.0*13.5-expectionOpenPrice*250, st.currentTrade.openPnL)
+		assert.Equal(t, 250.0*13.5-expectionOpenPrice*250, st.currentTrade.OpenPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -731,7 +793,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 		assert.Equal(t, expectionOpenPrice*300.0, st.currentTrade.OpenValue)
 		assert.Equal(t, 300.0*11.25, st.currentTrade.MarketValue)
-		assert.Equal(t, 300.0*11.25-expectionOpenPrice*300, st.currentTrade.openPnL)
+		assert.Equal(t, 300.0*11.25-expectionOpenPrice*300, st.currentTrade.OpenPnL)
 
 		assert.True(t, st.currentTrade.IsOpen())
 
@@ -742,23 +804,23 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	t.Log("Strategy: Add executions with wrong params.Check for errors")
 	{
 		st.onOrderFillHandler(&OrderFillEvent{})
-		v := <-st.errorsChan
+		v := <-st.ch.errors
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test")})
-		v = <-st.errorsChan
+		v = <-st.ch.errors
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1"})
-		v = <-st.errorsChan
+		v = <-st.ch.errors
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1", Price: math.NaN()})
-		v = <-st.errorsChan
+		v = <-st.ch.errors
 		t.Logf("OK! Got exception: %v", v)
 
 		st.onOrderFillHandler(&OrderFillEvent{BaseEvent: be(time.Now(), "Test"), OrdId: "Test|B|id1", Price: 10.0})
-		v = <-st.errorsChan
+		v = <-st.ch.errors
 		t.Logf("OK! Got exception: %v", v)
 
 	}
@@ -769,7 +831,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		prevOpenPrice := st.currentTrade.OpenPrice
 		err := st.newOrder(order)
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
 		assertStrategyHasNewOrderEvent(t, st)
@@ -849,7 +911,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		t.Log("Try to add execution for canceled order. Expecting error.")
 		{
 			st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 10, Qty: 10, BaseEvent: be(time.Now(), order.Symbol)})
-			v := <-st.errorsChan
+			v := <-st.ch.errors
 			t.Logf("OK! Got exception: %v", v)
 		}
 	}
@@ -891,7 +953,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, ClosedTrade, prevPos.Type)
 		assert.Equal(t, prevClosedPnL+(order.ExecPrice-prevOpenPrice)*float64(order.ExecQty), prevPos.ClosedPnL)
 		assert.Equal(t, 0.0, prevPos.OpenValue)
-		assert.Equal(t, 0.0, prevPos.openPnL)
+		assert.Equal(t, 0.0, prevPos.OpenPnL)
 		assert.Equal(t, 0.0, prevPos.MarketValue)
 
 		//Complete order fill. Flat position -> short position
@@ -899,7 +961,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, ShortTrade, st.currentTrade.Type)
 		assert.Equal(t, -350, st.Position())
 		assert.Equal(t, 18.22, st.currentTrade.OpenPrice)
-		assert.Equal(t, 0.0, st.currentTrade.openPnL)
+		assert.Equal(t, 0.0, st.currentTrade.OpenPnL)
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 
 		assert.Equal(t, order.Id, st.currentTrade.Id)
@@ -915,7 +977,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(20.0, OrderSell, 100, "ids5")
 		err := st.newOrder(order)
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
 		assertStrategyHasNewOrderEvent(t, st)
@@ -930,7 +992,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Len(t, st.currentTrade.FilledOrders, 2)
 		assert.Equal(t, (prevValue+order.ExecPrice*float64(order.ExecQty))/float64(st.currentTrade.Qty), st.currentTrade.OpenPrice)
 		assert.Equal(t, 450.0*20.01, st.currentTrade.MarketValue)
-		assert.Equal(t, st.currentTrade.OpenValue-st.currentTrade.MarketValue, st.currentTrade.openPnL)
+		assert.Equal(t, st.currentTrade.OpenValue-st.currentTrade.MarketValue, st.currentTrade.OpenPnL)
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
 	}
 
@@ -938,7 +1000,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 	{
 		order := newTestOrder(19.03, OrderBuy, 450, "idb1")
 		err := st.newOrder(order)
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
 		assertStrategyHasNewOrderEvent(t, st)
@@ -956,14 +1018,14 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Len(t, st.currentTrade.FilledOrders, 0)
 
 		assert.Equal(t, (prevOpenPrice-19.01)*450, st.closedTrades[1].ClosedPnL)
-		assert.Equal(t, 0.0, st.closedTrades[1].openPnL)
+		assert.Equal(t, 0.0, st.closedTrades[1].OpenPnL)
 		assert.Equal(t, 0.0, st.closedTrades[1].OpenValue)
 		assert.Equal(t, 0.0, st.closedTrades[1].MarketValue)
 	}
 }
 
 func assertStrategyHasCancelRequest(t *testing.T, st *BasicStrategy) {
-	v, ok := <-st.requestsChan
+	v, ok := <-st.ch.signals
 	if !ok {
 		t.Fatal("FATAL! Expected cancel order event.Didn't found any")
 	}
@@ -980,12 +1042,14 @@ func TestBasicStrategy_CancelOrder(t *testing.T) {
 	t.Log("Test cancel order request. Normal mode")
 	{
 		order := newTestOrder(10, OrderSell, 1000, "554")
+
 		err := st.newOrder(order)
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
-		assertNoErrorsGeneratedByEvents(t, st)
 		assertStrategyHasNewOrderEvent(t, st)
+		assertNoErrorsGeneratedByEvents(t, st)
+
 		assertStrategyHasNoEvents(t, st)
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
 		assert.Equal(t, ConfirmedOrder, order.State)
@@ -1007,6 +1071,4 @@ func TestBasicStrategy_CancelOrder(t *testing.T) {
 
 	}
 
-}*/
-
-
+}

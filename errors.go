@@ -105,3 +105,14 @@ func (e *ErrOrderNotFoundInConfirmedMap) Error() string {
 	return fmt.Sprintf("%v: ErrOrderNotFoundInConfirmedMap (id:%v). %v", e.Caller, e.OrdId, e.Message)
 
 }
+
+type ErrOrderIdIncorrect struct {
+	OrdId   string
+	Message string
+	Caller  string
+}
+
+func (e *ErrOrderIdIncorrect) Error() string {
+	return fmt.Sprintf("%v: ErrOrderIdIncorrect (id:%v). %v", e.Caller, e.OrdId, e.Message)
+
+}
