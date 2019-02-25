@@ -9,29 +9,92 @@ import (
 
 type EngineMode string
 
-const(
-	BacktestMode EngineMode = "BacktestMode"
+const (
+	BacktestMode     EngineMode = "BacktestMode"
 	MarketReplayMode EngineMode = "MarketReplayMode"
-
 )
+
+type Portfolio struct {
+	trades []*Trade
+	mut    *sync.RWMutex
+}
+
+func newPortfolio() *Portfolio {
+	p := Portfolio{}
+	p.mut = &sync.RWMutex{}
+	return &p
+}
+
+func (p *Portfolio) onNewTrade(t *Trade) {
+	p.mut.Lock()
+	p.trades = append(p.trades, t)
+	p.mut.Unlock()
+}
+
+func (p *Portfolio) TotalPnL() float64 {
+	p.mut.RLock()
+	defer p.mut.RUnlock()
+	pnl := 0.0
+	for _, pos := range p.trades {
+		if pos.Type == FlatTrade {
+			continue
+		}
+		pnl += pos.ClosedPnL + pos.OpenPnL
+	}
+	return pnl
+}
+
+func (p *Portfolio) OpenPnL() float64 {
+	p.mut.RLock()
+	defer p.mut.RUnlock()
+	pnl := 0.0
+	for _, pos := range p.trades {
+		if pos.Type == FlatTrade || pos.Type == ClosedTrade {
+			continue
+		}
+		pnl += pos.OpenPnL
+	}
+	return pnl
+}
+
+func (p *Portfolio) ClosedPnL() float64 {
+	p.mut.RLock()
+	defer p.mut.RUnlock()
+	pnl := 0.0
+	for _, pos := range p.trades {
+		if pos.Type == FlatTrade {
+			continue
+		}
+		pnl += pos.ClosedPnL
+	}
+	return pnl
+
+}
 
 type Engine struct {
 	Symbols             []string
 	BrokerConnector     IBroker
 	MarketDataConnector IMarketData
 	StrategyMap         map[string]IStrategy
-	terminationChan     chan struct{}
-	errChan             chan error
-	mdChan              chan event
-	log                 log.Logger
-	backtestMode        EngineMode
-	workersG            *sync.WaitGroup
+
+	portfolio *Portfolio
+
+	terminationChan chan struct{}
+	portfolioChan   chan *PortfolioNewPositionEvent
+	errChan         chan error
+	marketDataChan  chan event
+	log             log.Logger
+	engineMode      EngineMode
+	workersG        *sync.WaitGroup
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode) *Engine {
 
 	mdChan := make(chan event)
 	errChan := make(chan error)
+
+	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
+	portfolio := newPortfolio()
 
 	var symbols []string
 	for k := range sp {
@@ -45,7 +108,9 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		requestChan := make(chan event)
 		readyMdChan := make(chan struct{})
 		brokNotifyChan := make(chan *BrokerNotifyEvent)
-		sp[k].Connect(errChan, brokChan, requestChan, brokNotifyChan, readyMdChan)
+		sp[k].Connect(errChan, brokChan, requestChan, brokNotifyChan, readyMdChan, portfolioChan)
+		sp[k].setPortfolio(portfolio)
+
 		broker.SetSymbolChannels(k, requestChan, brokChan, readyMdChan, brokNotifyChan)
 
 	}
@@ -58,10 +123,12 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		MarketDataConnector: md,
 		StrategyMap:         sp,
 		errChan:             errChan,
-		mdChan:              mdChan,
+		marketDataChan:      mdChan,
 	}
 
-	eng.backtestMode = mode
+	eng.engineMode = mode
+	eng.portfolioChan = portfolioChan
+	eng.portfolio = portfolio
 	eng.prepareLogger()
 	eng.workersG = &sync.WaitGroup{}
 
@@ -140,7 +207,12 @@ func (c *Engine) shutDown() {
 		s.Finish()
 	}
 
+	fmt.Println(len(c.portfolio.trades))
 
+}
+
+func (c *Engine) updatePortfolio(e *PortfolioNewPositionEvent) {
+	go c.portfolio.onNewTrade(e.trade)
 }
 
 func (c *Engine) runStrategies() {
@@ -155,17 +227,26 @@ func (c *Engine) Run() {
 	c.runStrategies()
 LOOP:
 	for {
-
 		select {
-		case e := <-c.mdChan:
-			switch i := e.(type) {
-			case *NewTickEvent:
-				c.eTick(i)
-			case *EndOfDataEvent:
-				break LOOP
-			}
+		case e := <-c.portfolioChan:
+			fmt.Println(e.getName())
+			c.updatePortfolio(e)
 		case e := <-c.errChan:
 			c.logError(e)
+
+		default:
+			select {
+			case e := <-c.marketDataChan:
+				switch i := e.(type) {
+				case *NewTickEvent:
+					c.eTick(i)
+				case *EndOfDataEvent:
+					break LOOP
+				}
+			default:
+				continue LOOP
+
+			}
 		}
 	}
 

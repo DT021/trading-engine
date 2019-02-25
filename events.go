@@ -202,3 +202,12 @@ type BrokerNotifyEvent struct {
 func (c *BrokerNotifyEvent) getName() string {
 	return "BrokerNotifyEvent"
 }
+
+type PortfolioNewPositionEvent struct {
+	BaseEvent
+	trade *Trade
+}
+
+func (c *PortfolioNewPositionEvent) getName() string {
+	return "PortfolioNewPositionEvent"
+}

@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-
 const (
 	orderidLayout = "2006-01-02|15:04:05.000"
 )
@@ -31,7 +30,8 @@ type IStrategy interface {
 	Finish()
 
 	Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
-		notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{})
+		notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}, portfChan chan *PortfolioNewPositionEvent)
+	setPortfolio(p *Portfolio)
 }
 
 type IUserStrategy interface {
@@ -39,12 +39,14 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
+	portfolio           *Portfolio
 	connected           bool
 	Symbol              string
 	Name                string
 	NPeriods            int
 	requestsChan        chan event
 	brokerChan          <-chan event
+	portfolioChan       chan *PortfolioNewPositionEvent
 	brokerReady         chan struct{}
 	brokerNotifyChan    chan *BrokerNotifyEvent
 	terminationChan     chan struct{}
@@ -74,13 +76,14 @@ func (b *BasicStrategy) init() {
 }
 
 func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, requestChan chan event,
-	notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}) {
+	notChan chan *BrokerNotifyEvent, brokReadyChan chan struct{}, portfChan chan *PortfolioNewPositionEvent) {
 
 	b.errorsChan = errorsChan
 	b.brokerChan = brokerChan
 	b.requestsChan = requestChan
 	b.brokerReady = brokReadyChan
 	b.brokerNotifyChan = notChan
+	b.portfolioChan = portfChan
 	b.terminationChan = make(chan struct{})
 	b.waitingConfirmation = make(map[string]struct{})
 	b.mut = &sync.Mutex{}
@@ -88,12 +91,20 @@ func (b *BasicStrategy) Connect(errorsChan chan error, brokerChan chan event, re
 
 }
 
+func (b *BasicStrategy) setPortfolio(p *Portfolio) {
+	b.portfolio = p
+}
 
-func (b *BasicStrategy) Finish(){
-	go func(){
+func (b *BasicStrategy) GetTotalPnL() float64{
+	return b.portfolio.TotalPnL()
+}
+
+func (b *BasicStrategy) Finish() {
+	go func() {
 		b.terminationChan <- struct{}{}
 	}()
 }
+
 //Strategy API calls
 func (b *BasicStrategy) OnCandleClose() {
 
@@ -456,6 +467,7 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		go b.error(errors.New("Price is NaN or less or equal to zero. "))
 	}
 
+	prevState := b.currentTrade.Type
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
 
 	if err != nil {
@@ -469,6 +481,14 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		}
 		b.closedTrades = append(b.closedTrades, b.currentTrade)
 		b.currentTrade = newPos
+		fmt.Println("New trade to portf event")
+		b.portfolioChan <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+
+	} else {
+		if prevState == FlatTrade {
+			fmt.Println("New trade to portf event")
+			b.portfolioChan <- &PortfolioNewPositionEvent{be(e.getTime(), b.Symbol), b.currentTrade}
+		}
 	}
 
 	b.brokerNotifyChan <- &BrokerNotifyEvent{be(e.Time, e.Symbol), e}
