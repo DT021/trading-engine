@@ -35,7 +35,6 @@ type simBrokerOrder struct {
 type SimBroker struct {
 	delay                  int64
 	checkExecutionsOnTicks bool
-	hasQuotesAndTrades     bool
 	strictLimitOrders      bool
 	marketOpenUntilTime    TimeOfDay
 	marketCloseUntilTime   TimeOfDay
@@ -59,7 +58,6 @@ func (b *SimBroker) Init(errChan chan error, symbols []string) {
 			errChan:              errChan,
 			terminationChan:      make(chan struct{}),
 			delay:                b.delay,
-			hasQuotesAndTrades:   b.hasQuotesAndTrades,
 			strictLimitOrders:    b.strictLimitOrders,
 			marketOpenUntilTime:  b.marketCloseUntilTime,
 			marketCloseUntilTime: b.marketCloseUntilTime,
@@ -114,7 +112,6 @@ type simBrokerWorker struct {
 	terminationChan chan struct{}
 
 	delay                int64
-	hasQuotesAndTrades   bool
 	strictLimitOrders    bool
 	marketOpenUntilTime  TimeOfDay
 	marketCloseUntilTime TimeOfDay
@@ -216,38 +213,38 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 	if _, ok := b.orders[e.OrdId]; !ok {
 		e := OrderCancelRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Broker can't find order with ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Broker can't find order with ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == CanceledOrder{
+	if b.orders[e.OrdId].BrokerState == CanceledOrder {
 		e := OrderCancelRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is already canceled ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is already canceled ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == NewOrder{
+	if b.orders[e.OrdId].BrokerState == NewOrder {
 		e := OrderCancelRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is not confirmed yet ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is not confirmed yet ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == FilledOrder{
+	if b.orders[e.OrdId].BrokerState == FilledOrder {
 		e := OrderCancelRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is already filled ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is already filled ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
@@ -269,38 +266,38 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 	if _, ok := b.orders[e.OrdId]; !ok {
 		e := OrderReplaceRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Broker can't find order with ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Broker can't find order with ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == CanceledOrder{
+	if b.orders[e.OrdId].BrokerState == CanceledOrder {
 		e := OrderReplaceRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is already canceled ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is already canceled ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == NewOrder{
+	if b.orders[e.OrdId].BrokerState == NewOrder {
 		e := OrderReplaceRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is not confirmed yet ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is not confirmed yet ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
 	}
 
-	if b.orders[e.OrdId].BrokerState == FilledOrder{
+	if b.orders[e.OrdId].BrokerState == FilledOrder {
 		e := OrderReplaceRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason:"Order is already filled ID: "+e.OrdId,
+			OrdId:     e.OrdId,
+			Reason:    "Order is already filled ID: " + e.OrdId,
 		}
 		b.executeBrokerEvent(&e)
 		return
@@ -309,8 +306,8 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 	if math.IsNaN(e.NewPrice) || e.NewPrice == 0 {
 		e := OrderReplaceRejectEvent{
 			BaseEvent: be(newEvTime, e.Symbol),
-			OrdId:e.OrdId,
-			Reason: fmt.Sprintf("Replace price %v is not valid", e.NewPrice),
+			OrdId:     e.OrdId,
+			Reason:    fmt.Sprintf("Replace price %v is not valid", e.NewPrice),
 		}
 		b.executeBrokerEvent(&e)
 		return
@@ -323,8 +320,6 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 	}
 	b.executeBrokerEvent(&replacedEvent)
 }
-
-
 
 func (b *simBrokerWorker) checkModificationForReject(ordId string) error {
 
@@ -413,14 +408,14 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 }
 
 func (b *simBrokerWorker) tickIsValid(tick *marketdata.Tick) bool {
-	if tick.HasQuote {
-		if math.IsNaN(tick.BidPrice) || math.IsNaN(tick.AskPrice) || tick.BidPrice == 0 || tick.AskPrice == 0 {
+	if tick.HasQuote() {
+		if math.IsNaN(tick.BidPrice) || math.IsNaN(tick.AskPrice) || tick.BidPrice <= 0 || tick.AskPrice <= 0 {
 			return false
 		}
 	}
 
-	if tick.HasTrade {
-		if math.IsNaN(tick.LastPrice) || tick.LastPrice == 0 || tick.LastSize == 0 {
+	if tick.HasTrade() {
+		if math.IsNaN(tick.LastPrice) || tick.LastPrice <= 0 || tick.LastSize <= 0 {
 			return false
 		}
 	}
@@ -591,7 +586,7 @@ func (b *simBrokerWorker) checkOnTickMOO(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
-	if !tick.HasTrade {
+	if !tick.HasTrade() {
 		return nil
 	}
 
@@ -611,7 +606,7 @@ func (b *simBrokerWorker) checkOnTickMOC(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
-	if !tick.HasTrade {
+	if !tick.HasTrade() {
 		return nil
 	}
 
@@ -628,7 +623,7 @@ func (b *simBrokerWorker) checkOnTickMOC(order *simBrokerOrder, tick *marketdata
 
 func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketdata.Tick) event {
 
-	if !tick.HasTrade {
+	if !tick.HasTrade() {
 		return nil
 	}
 
@@ -721,7 +716,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 }
 
 func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdata.Tick) event {
-	if !tick.HasTrade {
+	if !tick.HasTrade() {
 		return nil
 	}
 
@@ -736,7 +731,7 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 		if int(tick.LastSize) < qty {
 			qty = int(tick.LastSize)
 		}
-		if tick.HasQuote {
+		if tick.HasQuote() {
 			price = tick.BidPrice
 			qty = lvsQty
 		}
@@ -759,7 +754,7 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 		if int(tick.LastSize) < qty {
 			qty = int(tick.LastSize)
 		}
-		if tick.HasQuote {
+		if tick.HasQuote() {
 			price = tick.AskPrice
 			qty = lvsQty
 		}
@@ -786,15 +781,28 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 
 func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketdata.Tick) event {
 
-	if b.hasQuotesAndTrades && !tick.HasQuote {
-		return nil
-	}
-	if !b.hasQuotesAndTrades && tick.HasQuote {
-		go b.newError(errors.New("Sim Broker: broker doesn't expect quotes. Only trades. "))
+	if order.Type != MarketOrder {
+		go b.newError(&ErrUnexpectedOrderType{
+			OrdId:        order.Id,
+			Caller:       "SimBroker.checkOnTickMarket",
+			ExpectedType: string(MarketOrder),
+			ActualType:   string(order.Type),
+		})
+
 		return nil
 	}
 
-	if b.hasQuotesAndTrades {
+	if !order.isValid() {
+		err := ErrInvalidOrder{
+			OrdId:   order.Id,
+			Message: "Can't check executions for invalid order.",
+			Caller:  "simBrokerWorker",
+		}
+		go b.newError(&err)
+		return nil
+	}
+
+	if tick.HasQuote() {
 		qty := 0
 		price := math.NaN()
 		lvsQty := order.Qty - order.BrokerExecQty
@@ -831,8 +839,8 @@ func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketd
 
 		return &fillE
 
-	} else { //If broker accepts only trades without quotes
-		if !tick.HasTrade {
+	} else { // If tick doesn't have quotes. Check on trades
+		if !tick.HasTrade() {
 			go b.newError(errors.New("Sim Broker: tick doesn't contain trade. "))
 			return nil
 		}
