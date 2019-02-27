@@ -9,6 +9,7 @@ import (
 type event interface {
 	getTime() time.Time
 	getName() string
+	String() string
 }
 
 type BaseEvent struct {
@@ -18,6 +19,14 @@ type BaseEvent struct {
 
 func (c *BaseEvent) getTime() time.Time {
 	return c.Time
+}
+
+func (c *BaseEvent) getStringTime() string{
+	return c.Time.Format("2006-01-02 15:04:05")
+}
+
+func (c *BaseEvent) String() string {
+	return fmt.Sprintf("%v %v", c.getTime(), "Base Event")
 }
 
 func be(datetime time.Time, symbol string) BaseEvent {
@@ -35,6 +44,10 @@ func (c *CandleOpenEvent) getName() string {
 	return "CandleOpenEvent"
 }
 
+func (c *CandleOpenEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Price: %v", c.getStringTime(), c.getName(), c.Price)
+}
+
 type CandleCloseEvent struct {
 	BaseEvent
 	Candle *marketdata.Candle
@@ -44,7 +57,12 @@ func (c *CandleCloseEvent) getName() string {
 	return "CandleCloseEvent"
 }
 
+func (c *CandleCloseEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
+}
+
 type CandleHistoryRequestEvent struct {
+	//Todo точно ли это реквест а не респонс
 	BaseEvent
 	Candle *marketdata.Candle
 }
@@ -53,13 +71,21 @@ func (c *CandleHistoryRequestEvent) getName() string {
 	return "CandleHistoryRequestEvent"
 }
 
+func (c *CandleHistoryRequestEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
+}
+
 type CandleHistoryEvent struct {
 	BaseEvent
 	Candles marketdata.CandleArray
-}
+} //Todo тоже чекнуть
 
 func (c *CandleHistoryEvent) getName() string {
 	return "CandleHistoryEvent"
+}
+
+func (c *CandleHistoryEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Total candles: %v", c.getStringTime(), c.getName(), len(c.Candles))
 }
 
 type NewTickEvent struct {
@@ -71,9 +97,13 @@ func (c *NewTickEvent) getName() string {
 	return "NewTickEvent"
 }
 
+func (c *NewTickEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Tick: %+v", c.getStringTime(), c.getName(), c.Tick)
+}
+
 type TickHistoryRequestEvent struct {
 	BaseEvent
-	Candle *marketdata.Candle
+	Candle *marketdata.Candle //todo че за хуйня?
 }
 
 func (c *TickHistoryRequestEvent) getName() string {
@@ -89,6 +119,10 @@ func (c *TickHistoryEvent) getName() string {
 	return "TickHistoryEvent"
 }
 
+func (c *TickHistoryEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Total ticks: %v", c.getStringTime(), c.getName(), len(c.Ticks))
+}
+
 type NewOrderEvent struct {
 	BaseEvent
 	LinkedOrder *Order
@@ -98,6 +132,10 @@ func (c *NewOrderEvent) getName() string {
 	return "NewOrderEvent"
 }
 
+func (c *NewOrderEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Order: %+v", c.getStringTime(), c.getName(), c.LinkedOrder)
+}
+
 type OrderConfirmationEvent struct {
 	BaseEvent
 	OrdId string
@@ -105,6 +143,10 @@ type OrderConfirmationEvent struct {
 
 func (c *OrderConfirmationEvent) getName() string {
 	return "OrderConfirmationEvent"
+}
+
+func (c *OrderConfirmationEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
 }
 
 type OrderFillEvent struct {
@@ -118,6 +160,11 @@ func (c *OrderFillEvent) getName() string {
 	return "OrderFillEvent"
 }
 
+func (c *OrderFillEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderID: %v Price: %v Qty: %v", c.getStringTime(), c.getName(), c.OrdId,
+		c.Price, c.Qty)
+}
+
 type OrderCancelEvent struct {
 	BaseEvent
 	OrdId string
@@ -127,14 +174,22 @@ func (c *OrderCancelEvent) getName() string {
 	return "OrderCancelEvent"
 }
 
+func (c *OrderCancelEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
+}
+
 type OrderCancelRejectEvent struct {
 	BaseEvent
-	OrdId string
+	OrdId  string
 	Reason string
 }
 
 func (c *OrderCancelRejectEvent) getName() string {
 	return "OrderCancelRejectEvent"
+}
+
+func (c *OrderCancelRejectEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %+v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
 type OrderCancelRequestEvent struct {
@@ -144,6 +199,10 @@ type OrderCancelRequestEvent struct {
 
 func (c *OrderCancelRequestEvent) getName() string {
 	return "OrderCancelRequestEvent"
+}
+
+func (c *OrderCancelRequestEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
 }
 
 type OrderReplaceRequestEvent struct {
@@ -156,14 +215,22 @@ func (c *OrderReplaceRequestEvent) getName() string {
 	return "OrderReplaceRequestEvent"
 }
 
+func (c *OrderReplaceRequestEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderId:%v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
+}
+
 type OrderReplaceRejectEvent struct {
 	BaseEvent
-	OrdId string
+	OrdId  string
 	Reason string
 }
 
 func (c *OrderReplaceRejectEvent) getName() string {
 	return "OrderReplaceRejectEvent"
+}
+
+func (c *OrderReplaceRejectEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
 type OrderReplacedEvent struct {
@@ -176,6 +243,10 @@ func (c *OrderReplacedEvent) getName() string {
 	return "OrderReplacedEvent"
 }
 
+func (c *OrderReplacedEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderId: %v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
+}
+
 type OrderRejectedEvent struct {
 	BaseEvent
 	OrdId  string
@@ -186,16 +257,21 @@ func (c *OrderRejectedEvent) getName() string {
 	return fmt.Sprintf("OrderRejectedEvent: %v Reason: %v", c.OrdId, c.Reason)
 }
 
-func (c *OrderRejectedEvent) getTime() time.Time {
-	return c.Time
+func (c *OrderRejectedEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
-type BrokerPositionUpdateEvent struct {
+type StrategyRequestNotDeliveredEvent struct {
 	BaseEvent
+	Request event
 }
 
-func (c *BrokerPositionUpdateEvent) getName() string {
-	return "BrokerPositionUpdateEvent"
+func (c *StrategyRequestNotDeliveredEvent) getName() string {
+	return fmt.Sprintf("StrategyRequestNotDeliveredEvent: Reason: %+v", c.Request)
+}
+
+func (c *StrategyRequestNotDeliveredEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Request: %+v", c.getStringTime(), c.getName(), c.Request)
 }
 
 type TimerTickEvent struct {
@@ -214,6 +290,10 @@ func (c *EndOfDataEvent) getName() string {
 	return "EndOfDataEvent"
 }
 
+func (c *EndOfDataEvent) String() string {
+	return fmt.Sprintf("%v %v", c.getTime(), c.getName())
+}
+
 type BrokerNotifyEvent struct {
 	BaseEvent
 	InitialEvent event
@@ -223,6 +303,10 @@ func (c *BrokerNotifyEvent) getName() string {
 	return "BrokerNotifyEvent"
 }
 
+func (c *BrokerNotifyEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** By event: %+v", c.getStringTime(), c.getName(), c.InitialEvent)
+}
+
 type PortfolioNewPositionEvent struct {
 	BaseEvent
 	trade *Trade
@@ -230,4 +314,8 @@ type PortfolioNewPositionEvent struct {
 
 func (c *PortfolioNewPositionEvent) getName() string {
 	return "PortfolioNewPositionEvent"
+}
+
+func (c *PortfolioNewPositionEvent) String() string {
+	return  fmt.Sprintf("%v [%v] ** Trade: %+v", c.getStringTime(), c.getName(), c.trade.Id)
 }

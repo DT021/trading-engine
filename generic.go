@@ -16,7 +16,7 @@ const (
 	OrderBuy  OrderSide = "B"
 	OrderSell OrderSide = "S"
 
-	NewOrder           OrderState = "newOrder"
+	NewOrder           OrderState = "NewOrder"
 	ConfirmedOrder     OrderState = "ConfirmedOrder"
 	FilledOrder        OrderState = "FilledOrder"
 	PartialFilledOrder OrderState = "PartialFilledOrder"

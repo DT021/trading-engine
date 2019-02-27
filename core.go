@@ -22,19 +22,22 @@ type Engine struct {
 	portfolio     *portfolioHandler
 
 	terminationChan chan struct{}
+	loggingChan     chan string
 	portfolioChan   chan *PortfolioNewPositionEvent
 	errChan         chan error
 	marketDataChan  chan event
 	log             log.Logger
 	engineMode      EngineMode
 	workersG        *sync.WaitGroup
+	globalWaitGroup *sync.WaitGroup
 }
 
-func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode) *Engine {
+func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
 
 	errChan := make(chan error)
 
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
+	eventLoggerChan := make(chan string, 2)
 	portfolio := newPortfolio()
 
 	var symbols []string
@@ -51,6 +54,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		notifyBrokerChan := make(chan *BrokerNotifyEvent)
 		cc := CoreStrategyChannels{
 			errors:         errChan,
+			eventLogging:   eventLoggerChan,
 			signals:        signalsChan,
 			broker:         brokerChan,
 			portfolio:      portfolioChan,
@@ -59,6 +63,9 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		}
 		sp[k].Connect(cc)
 		sp[k].setPortfolio(portfolio)
+		if logEvents {
+			sp[k].enableEventLogging()
+		}
 
 		bs := BrokerSymbolChannels{
 			signals:        signalsChan,
@@ -88,6 +95,8 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 	eng.portfolio = portfolio
 	eng.prepareLogger()
 	eng.workersG = &sync.WaitGroup{}
+	eng.globalWaitGroup = &sync.WaitGroup{}
+	eng.loggingChan = eventLoggerChan
 
 	return &eng
 }
@@ -138,9 +147,11 @@ func (c *Engine) eTick(e *NewTickEvent) {
 	}
 	st := c.getSymbolStrategy(e.Tick.Symbol)
 	go func() {
+		c.globalWaitGroup.Add(1)
 		c.workersG.Add(1)
 		st.onTickHandler(e)
 		c.workersG.Done()
+		c.globalWaitGroup.Done()
 	}()
 }
 
@@ -149,9 +160,20 @@ func (c *Engine) errorIsCritical(err error) bool {
 }
 
 func (c *Engine) logError(err error) {
-	out := fmt.Sprintf("ERROR ||| %v .", err)
-	c.log.Print(out)
+	go func() {
+		c.globalWaitGroup.Add(1)
+		out := fmt.Sprintf("ERROR ||| %v .", err)
+		c.log.Print(out)
+		c.globalWaitGroup.Done()
+	}()
+}
 
+func (c *Engine) logMessage(message string) {
+	go func() {
+		c.globalWaitGroup.Add(1)
+		c.log.Print(message)
+		c.globalWaitGroup.Done()
+	}()
 }
 
 func (c *Engine) shutDown() {
@@ -159,8 +181,8 @@ func (c *Engine) shutDown() {
 	for _, s := range c.strategiesMap {
 		s.Finish()
 	}
-	fmt.Println(len(c.portfolio.trades))
 
+	c.globalWaitGroup.Wait()
 }
 
 func (c *Engine) updatePortfolio(e *PortfolioNewPositionEvent) {
@@ -169,7 +191,9 @@ func (c *Engine) updatePortfolio(e *PortfolioNewPositionEvent) {
 
 func (c *Engine) runStrategies() {
 	for _, s := range c.strategiesMap {
+		c.globalWaitGroup.Add(1)
 		go s.Run()
+		c.globalWaitGroup.Done()
 	}
 }
 
@@ -181,8 +205,9 @@ LOOP:
 	for {
 		select {
 		case e := <-c.portfolioChan:
-			fmt.Println(e.getName())
 			c.updatePortfolio(e)
+		case e := <-c.loggingChan:
+			c.logMessage(e)
 		case e := <-c.errChan:
 			c.logError(e)
 
@@ -201,8 +226,6 @@ LOOP:
 			}
 		}
 	}
-
 	c.workersG.Wait()
-
 	c.shutDown()
 }

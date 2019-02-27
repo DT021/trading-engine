@@ -24,8 +24,8 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 	}
 
-	pnl:= b.GetTotalPnL()
-	if pnl!=0{
+	pnl := b.GetTotalPnL()
+	if pnl != 0 {
 		fmt.Println(pnl)
 	}
 	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySent {
@@ -111,7 +111,7 @@ func TestEngine_Run(t *testing.T) {
 
 		}
 
-		engine := NewEngine(strategyMap, broker, md, BacktestMode)
+		engine := NewEngine(strategyMap, broker, md, BacktestMode, true)
 
 		engine.Run()
 
