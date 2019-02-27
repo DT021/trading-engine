@@ -57,7 +57,6 @@ func genTickEvents(n int) []event {
 	}
 
 	return events
-
 }
 
 func genTickArray(n int) marketdata.TickArray {
