@@ -408,16 +408,8 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 }
 
 func (b *simBrokerWorker) tickIsValid(tick *marketdata.Tick) bool {
-	if tick.HasQuote() {
-		if math.IsNaN(tick.BidPrice) || math.IsNaN(tick.AskPrice) || tick.BidPrice <= 0 || tick.AskPrice <= 0 {
-			return false
-		}
-	}
-
-	if tick.HasTrade() {
-		if math.IsNaN(tick.LastPrice) || tick.LastPrice <= 0 || tick.LastSize <= 0 {
-			return false
-		}
+	if !tick.HasQuote() && !tick.HasTrade() {
+		return false
 	}
 	return true
 }
@@ -474,7 +466,11 @@ func (b *simBrokerWorker) checkOrderExecutionOnTick(orderSim *simBrokerOrder, ti
 }
 
 func (b *simBrokerWorker) checkOnTickLOO(order *simBrokerOrder, tick *marketdata.Tick) []event {
-
+	err := b.validateOrderForExecution(order, LimitOnOpen)
+	if err != nil {
+		go b.newError(err)
+		return nil
+	}
 	if !tick.IsOpening {
 		if b.marketOpenUntilTime.Before(tick.Datetime) {
 			cancelE := OrderCancelEvent{
@@ -492,6 +488,12 @@ func (b *simBrokerWorker) checkOnTickLOO(order *simBrokerOrder, tick *marketdata
 }
 
 func (b *simBrokerWorker) checkOnTickLOC(order *simBrokerOrder, tick *marketdata.Tick) []event {
+	err := b.validateOrderForExecution(order, LimitOnClose)
+	if err != nil {
+		go b.newError(err)
+		return nil
+	}
+
 	if !tick.IsClosing {
 		if b.marketCloseUntilTime.Before(tick.Datetime) {
 			cancelE := OrderCancelEvent{
@@ -590,6 +592,12 @@ func (b *simBrokerWorker) checkOnTickMOO(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
+	err := b.validateOrderForExecution(order, MarketOnOpen)
+	if err != nil {
+		go b.newError(err)
+		return nil
+	}
+
 	fillE := OrderFillEvent{
 		OrdId:     order.Id,
 		Price:     tick.LastPrice,
@@ -610,6 +618,12 @@ func (b *simBrokerWorker) checkOnTickMOC(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
+	err := b.validateOrderForExecution(order, MarketOnClose)
+	if err != nil {
+		go b.newError(err)
+		return nil
+	}
+
 	fillE := OrderFillEvent{
 		OrdId:     order.Id,
 		Price:     tick.LastPrice,
@@ -627,15 +641,14 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 		return nil
 	}
 
-	if math.IsNaN(tick.LastPrice) {
+	err := b.validateOrderForExecution(order, LimitOrder)
+	if err != nil {
+		go b.newError(err)
 		return nil
 	}
 
 	lvsQty := order.Qty - order.BrokerExecQty
-	if lvsQty <= 0 {
-		go b.newError(errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. "))
-		return nil
-	}
+
 	switch order.Side {
 	case OrderSell:
 		if tick.LastPrice > order.Price {
@@ -717,6 +730,12 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdata.Tick) event {
 	if !tick.HasTrade() {
+		return nil
+	}
+
+	err := b.validateOrderForExecution(order, StopOrder)
+	if err != nil {
+		go b.newError(err)
 		return nil
 	}
 
@@ -891,6 +910,11 @@ func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expec
 			Caller:        "Sim Broker",
 		}
 		return &err
+	}
+
+	lvsQty := order.Qty - order.BrokerExecQty
+	if lvsQty <= 0 {
+		return errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. ")
 	}
 
 	return nil
