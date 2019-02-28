@@ -19,6 +19,7 @@ type IMarketData interface {
 	Connect()
 	Init(errChan chan error, mdChan chan event)
 	SetSymbols(symbols []string)
+	RequestHistoricalData(duration time.Duration)
 	GetFirstTime() time.Time
 }
 
@@ -31,9 +32,10 @@ type BTM struct {
 	ToDate           time.Time
 	UsePrepairedData bool
 
-	errChan chan error
-	mdChan  chan event
-	Storage marketdata.Storage
+	errChan          chan error
+	mdChan           chan event
+	Storage          marketdata.Storage
+	histDataTimeBack time.Duration
 }
 
 func (m *BTM) SetSymbols(symbols []string) {
@@ -55,6 +57,11 @@ func (m *BTM) Init(errChan chan error, mdChan chan event) {
 
 	m.mdChan = mdChan
 	m.errChan = errChan
+	m.histDataTimeBack = time.Duration(0) * time.Second
+}
+
+func (m *BTM) RequestHistoricalData(duration time.Duration) {
+	m.histDataTimeBack = duration
 }
 
 func (m *BTM) GetFirstTime() time.Time {
@@ -192,8 +199,11 @@ func (m *BTM) Run() {
 	if !m.prepairedDataExists() {
 		m.prepare()
 	}
-
-	go m.genTickEvents()
+	if m.histDataTimeBack > time.Second {
+		go m.genTickEventsWithHistory()
+	} else {
+		go m.genTickEvents()
+	}
 
 }
 
@@ -206,31 +216,102 @@ func (m *BTM) genTickEvents() {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			m.newError(err)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
-	var prevTick *marketdata.Tick
+
 	for scanner.Scan() {
 		tick, err := m.parseLineToTick(scanner.Text())
 		if err != nil {
 			panic(err)
 		}
-		if prevTick == nil {
-			prevTick = tick
-			continue
-		}
+
 		e := NewTickEvent{
-			Tick:      prevTick,
-			BaseEvent: BaseEvent{Time: prevTick.Datetime, Symbol: prevTick.Symbol},
+			Tick:      tick,
+			BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
 		}
 
 		m.newEvent(&e)
 
-		prevTick = tick
+	}
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
 
+}
+
+func (m *BTM) genTickEventsWithHistory() {
+	if !m.prepairedDataExists() {
+		panic("Can't genereate tick events. Prepaired data is not exists. ")
 	}
 
-	m.newEvent(&EndOfDataEvent{BaseEvent: be(prevTick.Datetime.Add(time.Second), "-")})
+	file, err := os.Open(m.getPrepairedFilePath())
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			m.newError(err)
+		}
+	}()
+
+	historyMap := make(map[string]marketdata.TickArray)
+	historyLoaded := make(map[string]struct{})
+
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		tick, err := m.parseLineToTick(scanner.Text())
+		if err != nil {
+			panic(err)
+		}
+
+		//Put new tick event if we already got all history
+		if _, ok := historyLoaded[tick.Symbol]; ok {
+			e := NewTickEvent{
+				Tick:      tick,
+				BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
+			}
+			m.newEvent(&e)
+
+			continue
+		}
+
+		//If we have in history map something - check timespan. If history is full put history events
+		if arr, ok := historyMap[tick.Symbol]; ok {
+
+			delta := tick.Datetime.Sub(arr[0].Datetime)
+			if delta < m.histDataTimeBack {
+				historyMap[tick.Symbol] = append(historyMap[tick.Symbol], tick)
+
+			} else {
+				//Than put in chan history resp event
+				historyLoaded[tick.Symbol] = struct{}{}
+				historyEvent := TickHistoryEvent{
+					BaseEvent: be(arr[len(arr)-1].Datetime, tick.Symbol),
+					Ticks:     historyMap[tick.Symbol],
+				}
+				m.newEvent(&historyEvent)
+
+				//First put out new tick event
+				e := NewTickEvent{
+					Tick:      tick,
+					BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
+				}
+				m.newEvent(&e)
+
+			}
+		} else {
+			historyMap[tick.Symbol] = marketdata.TickArray{tick}
+
+		}
+
+	}
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
 
 }
 

@@ -21,7 +21,7 @@ func (c *BaseEvent) getTime() time.Time {
 	return c.Time
 }
 
-func (c *BaseEvent) getStringTime() string{
+func (c *BaseEvent) getStringTime() string {
 	return c.Time.Format("2006-01-02 15:04:05")
 }
 
@@ -45,7 +45,7 @@ func (c *CandleOpenEvent) getName() string {
 }
 
 func (c *CandleOpenEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Price: %v", c.getStringTime(), c.getName(), c.Price)
+	return fmt.Sprintf("%v **%v** Price: %v", c.getStringTime(), c.getName(), c.Price)
 }
 
 type CandleCloseEvent struct {
@@ -58,21 +58,7 @@ func (c *CandleCloseEvent) getName() string {
 }
 
 func (c *CandleCloseEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
-}
-
-type CandleHistoryRequestEvent struct {
-	//Todo точно ли это реквест а не респонс
-	BaseEvent
-	Candle *marketdata.Candle
-}
-
-func (c *CandleHistoryRequestEvent) getName() string {
-	return "CandleHistoryRequestEvent"
-}
-
-func (c *CandleHistoryRequestEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
+	return fmt.Sprintf("%v **%v** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
 }
 
 type CandleHistoryEvent struct {
@@ -85,7 +71,7 @@ func (c *CandleHistoryEvent) getName() string {
 }
 
 func (c *CandleHistoryEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Total candles: %v", c.getStringTime(), c.getName(), len(c.Candles))
+	return fmt.Sprintf("%v **%v** Total candles: %v", c.getStringTime(), c.getName(), len(c.Candles))
 }
 
 type NewTickEvent struct {
@@ -98,16 +84,7 @@ func (c *NewTickEvent) getName() string {
 }
 
 func (c *NewTickEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Tick: %+v", c.getStringTime(), c.getName(), c.Tick)
-}
-
-type TickHistoryRequestEvent struct {
-	BaseEvent
-	Candle *marketdata.Candle //todo че за хуйня?
-}
-
-func (c *TickHistoryRequestEvent) getName() string {
-	return "TickHistoryRequestEvent"
+	return fmt.Sprintf("%v **%v** Tick: %+v", c.getStringTime(), c.getName(), c.Tick)
 }
 
 type TickHistoryEvent struct {
@@ -120,7 +97,7 @@ func (c *TickHistoryEvent) getName() string {
 }
 
 func (c *TickHistoryEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Total ticks: %v", c.getStringTime(), c.getName(), len(c.Ticks))
+	return fmt.Sprintf("%v **%v** Total ticks: %v", c.getStringTime(), c.getName(), len(c.Ticks))
 }
 
 type NewOrderEvent struct {
@@ -133,7 +110,7 @@ func (c *NewOrderEvent) getName() string {
 }
 
 func (c *NewOrderEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Order: %+v", c.getStringTime(), c.getName(), c.LinkedOrder)
+	return fmt.Sprintf("%v **%v** Order: %+v", c.getStringTime(), c.getName(), c.LinkedOrder)
 }
 
 type OrderConfirmationEvent struct {
@@ -146,7 +123,7 @@ func (c *OrderConfirmationEvent) getName() string {
 }
 
 func (c *OrderConfirmationEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
+	return fmt.Sprintf("%v **%v** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
 }
 
 type OrderFillEvent struct {
@@ -161,7 +138,7 @@ func (c *OrderFillEvent) getName() string {
 }
 
 func (c *OrderFillEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderID: %v Price: %v Qty: %v", c.getStringTime(), c.getName(), c.OrdId,
+	return fmt.Sprintf("%v **%v** OrderID: %v Price: %v Qty: %v", c.getStringTime(), c.getName(), c.OrdId,
 		c.Price, c.Qty)
 }
 
@@ -175,7 +152,7 @@ func (c *OrderCancelEvent) getName() string {
 }
 
 func (c *OrderCancelEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
+	return fmt.Sprintf("%v **%v** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
 }
 
 type OrderCancelRejectEvent struct {
@@ -189,7 +166,7 @@ func (c *OrderCancelRejectEvent) getName() string {
 }
 
 func (c *OrderCancelRejectEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %+v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
+	return fmt.Sprintf("%v **%v** OrderId: %v Reason: %+v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
 type OrderCancelRequestEvent struct {
@@ -202,7 +179,7 @@ func (c *OrderCancelRequestEvent) getName() string {
 }
 
 func (c *OrderCancelRequestEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
+	return fmt.Sprintf("%v **%v** OrderID: %v", c.getStringTime(), c.getName(), c.OrdId)
 }
 
 type OrderReplaceRequestEvent struct {
@@ -216,7 +193,7 @@ func (c *OrderReplaceRequestEvent) getName() string {
 }
 
 func (c *OrderReplaceRequestEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderId:%v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
+	return fmt.Sprintf("%v **%v** OrderId:%v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
 }
 
 type OrderReplaceRejectEvent struct {
@@ -230,7 +207,7 @@ func (c *OrderReplaceRejectEvent) getName() string {
 }
 
 func (c *OrderReplaceRejectEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
+	return fmt.Sprintf("%v **%v** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
 type OrderReplacedEvent struct {
@@ -244,7 +221,7 @@ func (c *OrderReplacedEvent) getName() string {
 }
 
 func (c *OrderReplacedEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderId: %v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
+	return fmt.Sprintf("%v **%v** OrderId: %v New Price: %v", c.getStringTime(), c.getName(), c.OrdId, c.NewPrice)
 }
 
 type OrderRejectedEvent struct {
@@ -258,7 +235,7 @@ func (c *OrderRejectedEvent) getName() string {
 }
 
 func (c *OrderRejectedEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
+	return fmt.Sprintf("%v **%v** OrderId: %v Reason: %v", c.getStringTime(), c.getName(), c.OrdId, c.Reason)
 }
 
 type StrategyRequestNotDeliveredEvent struct {
@@ -271,7 +248,7 @@ func (c *StrategyRequestNotDeliveredEvent) getName() string {
 }
 
 func (c *StrategyRequestNotDeliveredEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Request: %+v", c.getStringTime(), c.getName(), c.Request)
+	return fmt.Sprintf("%v **%v** Request: %+v", c.getStringTime(), c.getName(), c.Request)
 }
 
 type TimerTickEvent struct {
@@ -304,7 +281,7 @@ func (c *BrokerNotifyEvent) getName() string {
 }
 
 func (c *BrokerNotifyEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** By event: %+v", c.getStringTime(), c.getName(), c.InitialEvent)
+	return fmt.Sprintf("%v **%v** By event: %+v", c.getStringTime(), c.getName(), c.InitialEvent)
 }
 
 type PortfolioNewPositionEvent struct {
@@ -317,5 +294,5 @@ func (c *PortfolioNewPositionEvent) getName() string {
 }
 
 func (c *PortfolioNewPositionEvent) String() string {
-	return  fmt.Sprintf("%v [%v] ** Trade: %+v", c.getStringTime(), c.getName(), c.trade.Id)
+	return fmt.Sprintf("%v **%v** Trade: %+v", c.getStringTime(), c.getName(), c.trade.Id)
 }

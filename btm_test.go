@@ -157,7 +157,10 @@ func prepairedDataIsSorted(pth string, t *testing.T) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		t.Error(err)
+	}()
 
 	scanner := bufio.NewScanner(file)
 	prevTimeUnix := 0
@@ -227,31 +230,80 @@ func TestBTM_Run(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	b.Run()
-	time.Sleep(10 * time.Millisecond)
-	totalE := 0
-	var prevTime time.Time
 
-LOOP:
-	for {
-		select {
-		case e := <-b.mdChan:
-			i := e.(event)
-			totalE += 1
-			assert.False(t, i.getTime().Before(prevTime))
-			prevTime = i.getTime()
-			if totalE == 1146 {
-				t.Log("OK! Found last event")
-				break LOOP
+	t.Log("Test without history events")
+	{
+		b.Run()
+		time.Sleep(10 * time.Millisecond)
+		totalE := 0
+		var prevTime time.Time
+	LOOP:
+		for {
+			select {
+			case e := <-b.mdChan:
+				switch i := e.(type){
+				case *NewTickEvent:
+					totalE++
+					prevTime = i.getTime()
+					assert.False(t, i.getTime().Before(prevTime))
+				case *EndOfDataEvent:
+					break LOOP
+				default:
+					t.Errorf("Unexpected event type: %+v", i)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Not found enough ticks")
+
 			}
-		case <-time.After(2 * time.Second):
-			t.Fatal("Not found enough ticks")
-
 		}
+		assert.Equal(t, 1147, totalE)
 	}
 
-	e := <-b.mdChan
-	assert.NotNil(t, e)
-	assert.IsType(t, &EndOfDataEvent{}, e)
+	t.Log("Test with history requests")
+	{
+		b.RequestHistoricalData(2 * time.Second)
+		b.Run()
+		histResponses := make(map[string]marketdata.TickArray)
+		tickEventsN := 0
+		histEventsN := 0
+		totalTicks := 0
+	HIST_LOOP:
+		for {
+			select {
+			case e := <-b.mdChan:
+				switch i := e.(type) {
+				case *NewTickEvent:
+					tickEventsN ++
+					totalTicks ++
+					if hist, ok := histResponses[i.Symbol]; ok {
+						assert.False(t, i.Tick.Datetime.Before(hist[len(hist)-1].Datetime))
+					} else {
+						t.Errorf("Got NewTickEvent without history response for %v", i.Symbol)
+					}
+				case *TickHistoryEvent:
+					histEventsN ++
+					_, ok := histResponses[i.Symbol]
+					assert.False(t, ok)
+					histResponses[i.Symbol] = i.Ticks
+					totalTicks += len(i.Ticks)
+					for n, tick := range i.Ticks {
+						assert.Equal(t, tick.Symbol, i.Symbol)
+						if n == 0 {
+							continue
+						} else {
+							assert.False(t, tick.Datetime.Before(i.Ticks[n-1].Datetime))
+						}
+					}
+
+				case *EndOfDataEvent:
+					break HIST_LOOP
+				}
+			}
+		}
+
+		assert.True(t, tickEventsN>0)
+		assert.True(t, histEventsN>0)
+		assert.Equal(t, 1147, totalTicks)
+	}
 
 }

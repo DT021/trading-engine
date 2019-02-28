@@ -56,8 +56,8 @@ type IStrategy interface {
 	onCandleOpenHandler(e *CandleOpenEvent)
 	onCandleCloseHandler(e *CandleCloseEvent)
 	onTickHandler(e *NewTickEvent)
-	onTickHistoryHandler(e *TickHistoryEvent) []*event
-	onCandleHistoryHandler(e *CandleHistoryEvent) []*event
+	onTickHistoryHandler(e *TickHistoryEvent)
+	onCandleHistoryHandler(e *CandleHistoryEvent)
 
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
@@ -188,7 +188,7 @@ func (b *BasicStrategy) sendEventForLogging(e event) {
 		return
 	}
 	go func() {
-		message := fmt.Sprintf("[STRATEGY EVENT:%v]  %+v", b.Symbol, e.String())
+		message := fmt.Sprintf("[SE:%v]  %+v", b.Symbol, e.String())
 		b.ch.eventLogging <- message
 	}()
 }
@@ -359,6 +359,12 @@ func (b *BasicStrategy) LastCandleOpen() float64 {
 }
 
 func (b *BasicStrategy) tickIsValid(t *marketdata.Tick) bool {
+	if t == nil {
+		return false
+	}
+	if !t.HasTrade() && !t.HasQuote() {
+		return false
+	}
 	return true
 }
 
@@ -421,15 +427,17 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 }
 
 //onCandleHistoryHandler puts historical candles in current array of candles.
-func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
+func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
+	b.sendEventForLogging(e)
+
 	if e.Candles == nil {
-		return nil
+		return
 	}
 	if len(e.Candles) == 0 {
-		return nil
+		return
 	}
 
 	allCandles := append(b.Candles, e.Candles...)
@@ -463,14 +471,14 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) []*event {
 
 	b.updateLastCandleOpen()
 
-	return nil
+	return
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	if e == nil {
 		return
 	}
-	if !b.tickIsValid(e.Tick) || e.Tick == nil {
+	if !b.tickIsValid(e.Tick) {
 		return
 	}
 
@@ -482,6 +490,7 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 
 	b.mut.Lock()
 	defer b.mut.Unlock()
+	b.sendEventForLogging(e)
 
 	b.mostRecentTime = e.Tick.Datetime
 
@@ -501,17 +510,19 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 }
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
-func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
+func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
 	if e.Ticks == nil {
-		return nil
+		return
 	}
 
 	if len(e.Ticks) == 0 {
-		return nil
+		return
 	}
+
+	b.sendEventForLogging(e)
 
 	allTicks := append(b.Ticks, e.Ticks...)
 
@@ -539,7 +550,7 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) []*event {
 		b.Ticks = checkedTicks
 	}
 
-	return nil
+	return
 }
 
 //Order events

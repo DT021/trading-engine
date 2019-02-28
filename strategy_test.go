@@ -50,7 +50,11 @@ func genTickEvents(n int) []event {
 	events := make([]event, n, n)
 	startTime := time.Now()
 	for i := range events {
-		tk := marketdata.Tick{Datetime: startTime}
+		tk := marketdata.Tick{
+			Datetime:  startTime,
+			LastPrice: 200,
+			LastSize:  2000,
+		}
 		startTime = startTime.Add(time.Second * time.Duration(1))
 		eTk := NewTickEvent{BaseEvent: be(tk.Datetime, tk.Symbol), Tick: &tk}
 		events[i] = &eTk

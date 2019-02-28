@@ -112,6 +112,7 @@ func TestEngine_Run(t *testing.T) {
 		}
 
 		engine := NewEngine(strategyMap, broker, md, BacktestMode, true)
+		engine.SetHistoryTimeBack(15 * time.Second)
 
 		engine.Run()
 

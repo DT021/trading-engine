@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"sync"
+	"time"
 )
 
 type EngineMode string
@@ -30,6 +31,7 @@ type Engine struct {
 	engineMode      EngineMode
 	workersG        *sync.WaitGroup
 	globalWaitGroup *sync.WaitGroup
+	histDataTimeBack time.Duration
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
@@ -37,7 +39,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 	errChan := make(chan error)
 
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
-	eventLoggerChan := make(chan string, 2)
+	eventLoggerChan := make(chan string)
 	portfolio := newPortfolio()
 
 	var symbols []string
@@ -97,6 +99,7 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 	eng.workersG = &sync.WaitGroup{}
 	eng.globalWaitGroup = &sync.WaitGroup{}
 	eng.loggingChan = eventLoggerChan
+	eng.histDataTimeBack = time.Duration(20) *time.Minute
 
 	return &eng
 }
@@ -109,6 +112,10 @@ func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
 	return st
 }
 
+func (c *Engine) SetHistoryTimeBack(duration time.Duration){
+	c.histDataTimeBack = duration
+}
+
 func (c *Engine) prepareLogger() {
 	f, err := os.OpenFile("log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -118,26 +125,25 @@ func (c *Engine) prepareLogger() {
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
-	/*st := c.getSymbolStrategy(e.Symbol)
-
-	if c.broker.IsSimulated() {
-		c.broker.OnCandleOpen(e)
-	}
-
-	st.onCandleOpenHandler(e)*/
-	panic("Not implemented")
-
+	st := c.getSymbolStrategy(e.Symbol)
+	go func() {
+		c.globalWaitGroup.Add(1)
+		c.workersG.Add(1)
+		st.onCandleOpenHandler(e)
+		c.workersG.Done()
+		c.globalWaitGroup.Done()
+	}()
 }
 
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
-	/*st := c.getSymbolStrategy(e.Symbol)
-
-	if c.broker.IsSimulated() {
-		c.broker.OnCandleClose(e)
-	}
-
-	st.onCandleCloseHandler(e)*/
-	panic("Not implemented")
+	st := c.getSymbolStrategy(e.Symbol)
+	go func() {
+		c.globalWaitGroup.Add(1)
+		c.workersG.Add(1)
+		st.onCandleCloseHandler(e)
+		c.workersG.Done()
+		c.globalWaitGroup.Done()
+	}()
 
 }
 
@@ -154,6 +160,30 @@ func (c *Engine) eTick(e *NewTickEvent) {
 		c.globalWaitGroup.Done()
 	}()
 }
+
+func (c *Engine) eCandleHistory(e *CandleHistoryEvent){
+	st := c.getSymbolStrategy(e.Symbol)
+	go func() {
+		c.globalWaitGroup.Add(1)
+		c.workersG.Add(1)
+		st.onCandleHistoryHandler(e)
+		c.workersG.Done()
+		c.globalWaitGroup.Done()
+	}()
+
+}
+
+func (c *Engine) eTickHistory(e *TickHistoryEvent){
+	st := c.getSymbolStrategy(e.Symbol)
+	go func() {
+		c.globalWaitGroup.Add(1)
+		c.workersG.Add(1)
+		st.onTickHistoryHandler(e)
+		c.workersG.Done()
+		c.globalWaitGroup.Done()
+	}()
+}
+
 
 func (c *Engine) errorIsCritical(err error) bool {
 	return false
@@ -181,7 +211,6 @@ func (c *Engine) shutDown() {
 	for _, s := range c.strategiesMap {
 		s.Finish()
 	}
-
 	c.globalWaitGroup.Wait()
 }
 
@@ -198,6 +227,7 @@ func (c *Engine) runStrategies() {
 }
 
 func (c *Engine) Run() {
+	c.md.RequestHistoricalData(c.histDataTimeBack)
 	c.md.Run()
 	c.broker.SubscribeEvents()
 	c.runStrategies()
@@ -217,6 +247,14 @@ LOOP:
 				switch i := e.(type) {
 				case *NewTickEvent:
 					c.eTick(i)
+				case *CandleCloseEvent:
+					c.eCandleClose(i)
+				case *CandleOpenEvent:
+					c.eCandleOpen(i)
+				case *CandleHistoryEvent:
+					c.eCandleHistory(i)
+				case *TickHistoryEvent:
+					c.eTickHistory(i)
 				case *EndOfDataEvent:
 					break LOOP
 				}
