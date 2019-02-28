@@ -93,16 +93,6 @@ func (s *mockStorage) GetStoredCandles(symbol string, tf string, dRange marketda
 	return nil, errors.New("Not implemented method for mockStorage")
 }
 
-func createDirIfNotExists(dirPath string) error {
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-
-		err := os.MkdirAll(dirPath, os.ModePerm)
-		return err
-	}
-
-	return nil
-}
-
 func newTestBTM() *BTM {
 	testSymbols := []string{
 		"Sym1",
@@ -159,7 +149,10 @@ func prepairedDataIsSorted(pth string, t *testing.T) bool {
 	}
 	defer func() {
 		err := file.Close()
-		t.Error(err)
+		if err!=nil{
+			t.Error(err)
+		}
+
 	}()
 
 	scanner := bufio.NewScanner(file)
@@ -210,18 +203,6 @@ func TestBTM_prepare(t *testing.T) {
 
 }
 
-func assertNoEventsGeneratedByBTM(t *testing.T, b *BTM) {
-	select {
-	case v, ok := <-b.mdChan:
-		assert.False(t, ok)
-		if ok {
-			t.Errorf("ERROR! Expected no events. Found: %v", v)
-		}
-	default:
-		t.Log("OK! Events chan is empty")
-		break
-	}
-}
 
 func TestBTM_Run(t *testing.T) {
 	b := newTestBTM()

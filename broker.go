@@ -11,9 +11,9 @@ import (
 
 type IBroker interface {
 	Connect()
+	Disconnect()
 	Init(err chan error, symbols []string)
 	SubscribeEvents()
-	UnSubscribeEvents()
 	SetSymbolChannels(symbol string, bs BrokerSymbolChannels)
 	IsSimulated() bool
 }
@@ -29,7 +29,7 @@ type simBrokerOrder struct {
 	*Order
 	BrokerState   OrderState
 	StateUpdTime  time.Time
-	BrokerExecQty int
+	BrokerExecQty int64
 }
 
 type SimBroker struct {
@@ -45,11 +45,14 @@ func (b *SimBroker) Connect() {
 	fmt.Println("SimBroker connected")
 }
 
+func (b *SimBroker) Disconnect() {
+	fmt.Println("SimBroker connected")
+}
+
 func (b *SimBroker) Init(errChan chan error, symbols []string) {
 	if len(symbols) == 0 {
 		panic("No symbols specified")
 	}
-
 	b.workers = make(map[string]*simBrokerWorker)
 
 	for _, s := range symbols {
@@ -64,7 +67,6 @@ func (b *SimBroker) Init(errChan chan error, symbols []string) {
 			mpMutext:             &sync.RWMutex{},
 			orders:               make(map[string]*simBrokerOrder),
 		}
-
 		b.workers[s] = &bw
 
 	}
@@ -74,20 +76,6 @@ func (b *SimBroker) SubscribeEvents() {
 	for _, w := range b.workers {
 		go w.run()
 	}
-
-}
-
-func (b *SimBroker) UnSubscribeEvents() {
-	wg := &sync.WaitGroup{}
-	for _, w := range b.workers {
-		go func() {
-			wg.Add(1)
-			w.terminationChan <- struct{}{}
-			wg.Done()
-		}()
-	}
-	wg.Wait()
-
 }
 
 func (b *SimBroker) SetSymbolChannels(symbol string, bs BrokerSymbolChannels) {
@@ -95,29 +83,42 @@ func (b *SimBroker) SetSymbolChannels(symbol string, bs BrokerSymbolChannels) {
 	if !ok {
 		panic("Can't set channel for symbol not in workers")
 	}
-
 	w.ch = bs
-
 }
 
 func (b *SimBroker) IsSimulated() bool {
 	return true
 }
 
+//*******simBrokerWorker**********************************************
 type simBrokerWorker struct {
-	symbol string
-
-	errChan         chan error
-	ch              BrokerSymbolChannels
-	terminationChan chan struct{}
-
+	symbol               string
+	errChan              chan error
+	ch                   BrokerSymbolChannels
+	terminationChan      chan struct{}
 	delay                int64
 	strictLimitOrders    bool
 	marketOpenUntilTime  TimeOfDay
 	marketCloseUntilTime TimeOfDay
+	mpMutext             *sync.RWMutex
+	orders               map[string]*simBrokerOrder
+}
 
-	mpMutext *sync.RWMutex
-	orders   map[string]*simBrokerOrder
+func (b *simBrokerWorker) run() {
+Loop:
+	for {
+		select {
+		case e := <-b.ch.signals:
+			switch e.(type) {
+			case *StrategyFinishedEvent:
+				break Loop
+			}
+			b.proxyEvent(e)
+		case <-b.terminationChan:
+			break Loop
+		}
+	}
+
 }
 
 func (b *simBrokerWorker) proxyEvent(e event) {
@@ -132,27 +133,7 @@ func (b *simBrokerWorker) proxyEvent(e event) {
 		b.onTick(i.Tick)
 	default:
 		panic("Unexpected event time in broker: " + e.getName())
-
 	}
-
-}
-
-func (b *simBrokerWorker) shutDown() {
-
-}
-
-func (b *simBrokerWorker) run() {
-Loop:
-	for {
-		select {
-		case e := <-b.ch.signals:
-			b.proxyEvent(e)
-		case <-b.terminationChan:
-			break Loop
-		}
-	}
-	b.shutDown()
-
 }
 
 func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
@@ -553,8 +534,8 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 	}
 
 	execQty := order.Qty
-	if execQty > int(tick.LastSize) {
-		execQty = int(tick.LastSize)
+	if execQty > tick.LastSize {
+		execQty = tick.LastSize
 	}
 
 	fillE := OrderFillEvent{
@@ -654,7 +635,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 		if tick.LastPrice > order.Price {
 			qty := lvsQty
 			if tick.LastSize < int64(qty) {
-				qty = int(tick.LastSize)
+				qty = tick.LastSize
 			}
 
 			fillE := OrderFillEvent{
@@ -669,7 +650,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 			if tick.LastPrice == order.Price && !b.strictLimitOrders {
 				qty := lvsQty
 				if tick.LastSize < int64(qty) {
-					qty = int(tick.LastSize)
+					qty = tick.LastSize
 				}
 
 				fillE := OrderFillEvent{
@@ -689,7 +670,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 		if tick.LastPrice < order.Price {
 			qty := lvsQty
 			if tick.LastSize < int64(qty) {
-				qty = int(tick.LastSize)
+				qty = tick.LastSize
 			}
 
 			fillE := OrderFillEvent{
@@ -705,7 +686,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 			if tick.LastPrice == order.Price && !b.strictLimitOrders {
 				qty := lvsQty
 				if tick.LastSize < int64(qty) {
-					qty = int(tick.LastSize)
+					qty = tick.LastSize
 				}
 
 				fillE := OrderFillEvent{
@@ -747,8 +728,8 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 		price := tick.LastPrice
 		lvsQty := order.Qty - order.BrokerExecQty
 		qty := lvsQty
-		if int(tick.LastSize) < qty {
-			qty = int(tick.LastSize)
+		if tick.LastSize < qty {
+			qty = tick.LastSize
 		}
 		if tick.HasQuote() {
 			price = tick.BidPrice
@@ -770,8 +751,8 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 		price := tick.LastPrice
 		lvsQty := order.Qty - order.BrokerExecQty
 		qty := lvsQty
-		if int(tick.LastSize) < qty {
-			qty = int(tick.LastSize)
+		if tick.LastSize < qty {
+			qty = tick.LastSize
 		}
 		if tick.HasQuote() {
 			price = tick.AskPrice
@@ -822,13 +803,13 @@ func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketd
 	}
 
 	if tick.HasQuote() {
-		qty := 0
+		var qty int64 = 0
 		price := math.NaN()
 		lvsQty := order.Qty - order.BrokerExecQty
 
 		if order.Side == OrderBuy {
-			if int64(lvsQty) > tick.AskSize { //Todo Smell
-				qty = int(tick.AskSize)
+			if lvsQty > tick.AskSize {
+				qty = tick.AskSize
 			} else {
 				qty = lvsQty
 			}
@@ -841,8 +822,8 @@ func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketd
 				return nil
 			}
 
-			if int64(lvsQty) > tick.BidSize { //Todo Smell
-				qty = int(tick.BidSize)
+			if lvsQty > tick.BidSize {
+				qty = tick.BidSize
 			} else {
 				qty = lvsQty
 			}

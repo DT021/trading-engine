@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-//We use some dummy strategy for tests
+//We use some dummy userStrategy for tests
 type DummyStrategy struct {
 }
 
@@ -18,15 +18,23 @@ func (d *DummyStrategy) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
 
 }
 
+func (d *DummyStrategy) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
+
+}
+
+func (d *DummyStrategy) OnCandleOpen(b *BasicStrategy, price float64) {
+
+}
+
 func newTestBasicStrategy() *BasicStrategy {
 	st := DummyStrategy{}
 	bs := BasicStrategy{
-		Symbol:   "Test",
-		NPeriods: 20,
-		strategy: &st}
+		symbol:       "Test",
+		nPeriods:     20,
+		userStrategy: &st}
 
-	bs.init()
 	brokerChan := make(chan event)
+	marketData := make(chan event)
 	signalsChan := make(chan event)
 	notifyBrokerChan := make(chan *BrokerNotifyEvent, 100) //Just to make things simple. We dont want to read from it
 	brokerNotifierChan := make(chan struct{})
@@ -35,6 +43,7 @@ func newTestBasicStrategy() *BasicStrategy {
 
 	cc := CoreStrategyChannels{
 		errors:         errorsChan,
+		marketdata:     marketData,
 		signals:        signalsChan,
 		broker:         brokerChan,
 		portfolio:      portfolioChan,
@@ -42,7 +51,7 @@ func newTestBasicStrategy() *BasicStrategy {
 		brokerNotifier: brokerNotifierChan,
 	}
 
-	bs.Connect(cc)
+	bs.init(cc)
 	return &bs
 }
 
@@ -79,7 +88,7 @@ func genTickArray(n int) marketdata.TickArray {
 	return ticks
 }
 
-func isTicksSorted(st IStrategy) bool {
+func isTicksSorted(st ICoreStrategy) bool {
 	tks := st.ticks()
 	ok := true
 	for i, v := range tks {
@@ -117,7 +126,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		}
 
 		if len(st.Ticks) != 10 {
-			t.Fatalf("\tLen ticks in strategy should be 10")
+			t.Fatalf("\tLen ticks in userStrategy should be 10")
 		}
 		assert.True(t, isTicksSorted(st))
 	}
@@ -141,7 +150,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		}
 
 		if len(st.Ticks) != 20 {
-			t.Fatalf("\tLen ticks in strategy should be 20")
+			t.Fatalf("\tLen ticks in userStrategy should be 20")
 		}
 
 		if st.Ticks[0].Datetime != oldestTime {
@@ -273,7 +282,7 @@ func genCandleCloseEvents(n int) []event {
 
 }
 
-func isCandlesSortedAndValid(st IStrategy) (bool, bool) {
+func isCandlesSortedAndValid(st ICoreStrategy) (bool, bool) {
 	tks := st.candles()
 	sortOk := true
 	duplicatesOk := true
@@ -314,7 +323,7 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 	t.Log("Put some historical candles")
 	{
 		candles := genCandleArray(15)
-		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
+		e := CandlesHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 15, len(st.Candles))
 		basicChecks()
@@ -323,14 +332,14 @@ func TestBasicStrategy_onCandleHistoryHandler(t *testing.T) {
 	t.Log("Add more historical candles")
 	{
 		candles := genCandleArray(40)
-		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
+		e := CandlesHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, 20, len(st.Candles))
 		basicChecks()
 
 		t.Log("Add duplicate candles")
 		{
-			e2 := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles[35:]}
+			e2 := CandlesHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles[35:]}
 			st.onCandleHistoryHandler(&e2)
 			assert.Equal(t, 20, len(st.Candles))
 			basicChecks()
@@ -373,7 +382,7 @@ func TestBasicStrategy_onCandleOpenHandler(t *testing.T) {
 	t.Log("Put some historical candles")
 	{
 		candles := genCandleArray(15)
-		e := CandleHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
+		e := CandlesHistoryEvent{BaseEvent: be(candles[0].Datetime, "TEST"), Candles: candles}
 		st.onCandleHistoryHandler(&e)
 		assert.Equal(t, candles[13].Open, st.LastCandleOpen())
 
@@ -435,11 +444,6 @@ func getErrorsGeneratedByStrategy(st *BasicStrategy) error {
 func TestBasicStrategy_OrdersFlow(t *testing.T) {
 	t.Log("Test orders flow in Basic Strategy")
 	st := newTestBasicStrategy()
-
-	/*defer func() {
-		close(st.ch.errors)
-		close(st.mdChan)
-	}()*///Todo почему после этого падает следующий тест???
 
 	ord := newTestOrder(100, OrderBuy, 100, "")
 

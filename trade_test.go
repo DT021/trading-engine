@@ -8,7 +8,7 @@ import (
 	"math"
 )
 
-func newTestOrder(price float64, side OrderSide, qty int, id string) *Order {
+func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {
 	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price, ExecPrice: math.NaN(), State: NewOrder, Type: LimitOrder}
 	return &o
 }

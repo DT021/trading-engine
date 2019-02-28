@@ -61,16 +61,16 @@ func (c *CandleCloseEvent) String() string {
 	return fmt.Sprintf("%v **%v** Candle: %+v", c.getStringTime(), c.getName(), c.Candle)
 }
 
-type CandleHistoryEvent struct {
+type CandlesHistoryEvent struct {
 	BaseEvent
 	Candles marketdata.CandleArray
-} //Todo тоже чекнуть
-
-func (c *CandleHistoryEvent) getName() string {
-	return "CandleHistoryEvent"
 }
 
-func (c *CandleHistoryEvent) String() string {
+func (c *CandlesHistoryEvent) getName() string {
+	return "CandlesHistoryEvent"
+}
+
+func (c *CandlesHistoryEvent) String() string {
 	return fmt.Sprintf("%v **%v** Total candles: %v", c.getStringTime(), c.getName(), len(c.Candles))
 }
 
@@ -130,7 +130,7 @@ type OrderFillEvent struct {
 	BaseEvent
 	OrdId string
 	Price float64
-	Qty   int
+	Qty   int64
 }
 
 func (c *OrderFillEvent) getName() string {
@@ -309,5 +309,3 @@ func (c *StrategyFinishedEvent) getName() string {
 func (c *StrategyFinishedEvent) String() string {
 	return fmt.Sprintf("%v **%v** Strategy: %+v", c.getStringTime(), c.getName(), c.strategy)
 }
-
-

@@ -65,8 +65,8 @@ func (t *TimeOfDay) Before(datetime time.Time) bool {
 
 type Order struct {
 	Side      OrderSide
-	Qty       int
-	ExecQty   int
+	Qty       int64
+	ExecQty   int64
 	Symbol    string
 	State     OrderState
 	Price     float64
@@ -118,7 +118,7 @@ func (o *Order) isValid() bool {
 	return true
 }
 
-func (o *Order) addExecution(price float64, qty int) error {
+func (o *Order) addExecution(price float64, qty int64) error {
 	if o.State == FilledOrder {
 		return errors.New("Can't update order. Order is already filled")
 	}
@@ -224,7 +224,7 @@ func newFlatTrade(symbol string) *Trade {
 
 type Trade struct {
 	Symbol      string
-	Qty         int
+	Qty         int64
 	Type        TradeType
 	FirstPrice  float64
 	OpenPrice   float64
@@ -369,7 +369,7 @@ func (t *Trade) replaceOrder(id string, newPrice float64) error {
 
 //executeOrder by given id and qty. If order qty was large than current position open qty then position will get state
 //ClosedTrade and pointer to new opened position will be returned. All position values will be updated
-func (t *Trade) executeOrder(id string, qty int, execPrice float64, datetime time.Time) (*Trade, error) {
+func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime time.Time) (*Trade, error) {
 
 	order, ok := t.ConfirmedOrders[id]
 	if !ok {

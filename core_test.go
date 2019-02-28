@@ -2,16 +2,19 @@ package engine
 
 import (
 	"alex/marketdata"
-	"bufio"
-	"os"
-	"strings"
-	"testing"
-	"time"
 )
 
 type DummyStrategyWithLogic struct {
 	idToCancel  string
 	alreadySent bool
+}
+
+func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
+
+}
+
+func (d *DummyStrategyWithLogic) OnCandleOpen(b *BasicStrategy, price float64) {
+
 }
 
 func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
@@ -52,41 +55,38 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	st := DummyStrategyWithLogic{}
 	bs := BasicStrategy{
-		Symbol:   symbol,
-		NPeriods: 20,
-		strategy: &st}
+		symbol:       symbol,
+		nPeriods:     20,
+		userStrategy: &st}
 
-	bs.init()
-	/*eventsChan := make(chan event)
-	errorsChan := make(chan error)
-	bs.Connect(errorsChan, eventsChan, make(chan struct{}))*/
+	brokerChan := make(chan event)
+	stategyMarketData := make(chan event, 6)
+	signalsChan := make(chan event)
+	brokerNotifierChan := make(chan struct{})
+	notifyBrokerChan := make(chan *BrokerNotifyEvent)
+	errChan := make(chan error)
+	strategyDone := make(chan *StrategyFinishedEvent, 1)
+	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
+	cc := CoreStrategyChannels{
+		errors:     errChan,
+		marketdata: stategyMarketData,
+
+		signals:        signalsChan,
+		broker:         brokerChan,
+		portfolio:      portfolioChan,
+		notifyBroker:   notifyBrokerChan,
+		brokerNotifier: brokerNotifierChan,
+		strategyDone:   strategyDone,
+	}
+
+	bs.init(cc)
 	return &bs
 
 }
 
-func findErrorsInLog() []string {
-	file, err := os.Open("log.txt")
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-	var errors []string
 
-	scanner := bufio.NewScanner(file)
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		meta := strings.Split(line, "|||")[0]
-		if strings.Contains(meta, "ERROR") {
-			errors = append(errors, line)
-		}
-	}
-
-	return errors
-
-}
-
-func TestEngine_Run(t *testing.T) {
+/*func TestEngine_Run(t *testing.T) {
 	err := os.Remove("log.txt")
 	if err != nil {
 		t.Error(err)
@@ -102,7 +102,7 @@ func TestEngine_Run(t *testing.T) {
 		broker := newTestSimBroker()
 		md := newTestBTM()
 
-		strategyMap := make(map[string]IStrategy)
+		strategyMap := make(map[string]ICoreStrategy)
 
 		for _, s := range md.Symbols {
 			st := newTestStrategyWithLogic(s)
@@ -132,4 +132,4 @@ func TestEngine_Run(t *testing.T) {
 
 	}
 
-}
+}*/

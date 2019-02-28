@@ -44,8 +44,6 @@ func newTestSimBrokerWorker() *simBrokerWorker {
 func TestSimulatedBroker_Init(t *testing.T) {
 	t.Log("Test connect simulated broker")
 	{
-		/*TODO надо модифицировать самого брокера. Убрать настройки в отдельный
-		struct и мочить его в инит*/
 		b := SimBroker{}
 		errChan := make(chan error)
 		symbols := []string{"Test1", "Test2"}
@@ -304,7 +302,7 @@ func getTestSimBrokerGeneratedErrors(b *simBrokerWorker) error {
 
 }
 
-func newTestBrokerOrder(price float64, side OrderSide, qty int, id string) *simBrokerOrder {
+func newTestBrokerOrder(price float64, side OrderSide, qty int64, id string) *simBrokerOrder {
 	ord := newTestOrder(price, side, qty, id)
 	o := simBrokerOrder{Order: ord, BrokerState: ConfirmedOrder}
 	return &o
@@ -349,7 +347,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 20.01, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -390,7 +388,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 19.95, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -422,7 +420,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 21.05, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -454,7 +452,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 20.01, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -481,7 +479,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 19.98, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 300, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -513,7 +511,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 20.09, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 600, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(600), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -540,7 +538,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, 20.05, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 300, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -780,7 +778,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -825,7 +823,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					case *OrderFillEvent:
 						t.Log("OK! Got OrderFillEvent as expected")
 						assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-						assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+						assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 						assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 					default:
 						t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -851,7 +849,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					case *OrderFillEvent:
 						t.Log("OK! Got OrderFillEvent as expected")
 						assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-						assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+						assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 						assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 					default:
 						t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -897,7 +895,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -929,7 +927,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -955,7 +953,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -988,7 +986,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					t.Log("OK! Got OrderFillEvent as expected")
 					t.Logf("Event: %v", v)
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1031,7 +1029,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					case *OrderFillEvent:
 						t.Log("OK! Got OrderFillEvent as expected")
 						assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-						assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+						assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 						assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 					default:
 						t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1056,7 +1054,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					case *OrderFillEvent:
 						t.Log("OK! Got OrderFillEvent as expected")
 						assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-						assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+						assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 						assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 					default:
 						t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1102,7 +1100,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1132,7 +1130,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1156,7 +1154,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1182,7 +1180,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1203,7 +1201,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, order.Price, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 100, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1358,7 +1356,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1486,13 +1484,13 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 				}
 
-				order.BrokerExecQty = int(tick.LastSize)
+				order.BrokerExecQty = tick.LastSize
 				order.BrokerState = PartialFilledOrder
 
 				tick = marketdata.Tick{
@@ -1510,7 +1508,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 300, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1541,7 +1539,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -1670,13 +1668,13 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 200, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
 				}
 
-				order.BrokerExecQty = int(tick.LastSize)
+				order.BrokerExecQty = tick.LastSize
 				order.BrokerState = PartialFilledOrder
 
 				tick = marketdata.Tick{
@@ -1694,7 +1692,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				case *OrderFillEvent:
 					t.Log("OK! Got OrderFillEvent as expected")
 					assert.Equal(t, tick.LastPrice, v.(*OrderFillEvent).Price)
-					assert.Equal(t, 300, v.(*OrderFillEvent).Qty)
+					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
 				default:
 					t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -2074,7 +2072,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			case *OrderFillEvent:
 				t.Log("OK! Got OrderFillEvent as expected")
 				assert.Equal(t, tick.LastPrice, i.Price)
-				assert.Equal(t, 389, i.Qty)
+				assert.Equal(t, int64(389), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
 			default:
 				t.Errorf("Error! Expected OrderFillEvent. Got: %v, %v", i, i.getName())
@@ -2232,7 +2230,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			case *OrderFillEvent:
 				t.Log("OK! Got OrderFillEvent as expected")
 				assert.Equal(t, tick.LastPrice, i.Price)
-				assert.Equal(t, 378, i.Qty)
+				assert.Equal(t, int64(378), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
 			default:
 				t.Errorf("Error! Expected OrderFillEvent. Got: %v", v)
@@ -2360,7 +2358,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 	b.marketOpenUntilTime = TimeOfDay{9, 35, 0}
 	b.marketCloseUntilTime = TimeOfDay{16, 5, 15}
 
-	putNewOrder := func(price float64, ordType OrderType, ordSide OrderSide, qty int, id string) *simBrokerOrder {
+	putNewOrder := func(price float64, ordType OrderType, ordSide OrderSide, qty int64, id string) *simBrokerOrder {
 		order := newTestBrokerOrder(price, ordSide, qty, id)
 		order.Type = ordType
 		assert.True(t, order.isValid())

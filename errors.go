@@ -116,4 +116,3 @@ func (e *ErrOrderIdIncorrect) Error() string {
 	return fmt.Sprintf("%v: ErrOrderIdIncorrect (id:%v). %v", e.Caller, e.OrdId, e.Message)
 
 }
-
