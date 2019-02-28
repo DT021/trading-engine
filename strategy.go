@@ -4,8 +4,10 @@ import (
 	"alex/marketdata"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -18,12 +20,14 @@ const (
 
 type CoreStrategyChannels struct {
 	errors         chan error
+	marketdata     chan event
 	eventLogging   chan string
 	signals        chan event
 	broker         chan event
 	portfolio      chan *PortfolioNewPositionEvent
 	notifyBroker   chan *BrokerNotifyEvent
 	brokerNotifier chan struct{}
+	strategyDone   chan *StrategyFinishedEvent
 }
 
 func (c *CoreStrategyChannels) isValid() bool {
@@ -49,6 +53,10 @@ func (c *CoreStrategyChannels) isValid() bool {
 		return false
 	}
 
+	if c.marketdata == nil {
+		return false
+	}
+
 	return true
 }
 
@@ -67,6 +75,7 @@ type IStrategy interface {
 	Connect(ch CoreStrategyChannels)
 	setPortfolio(p *portfolioHandler)
 	enableEventLogging()
+	sendMarketData(e event)
 }
 
 type IUserStrategy interface {
@@ -74,11 +83,13 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
-	portfolio *portfolioHandler
-	connected bool
-	Symbol    string
-	Name      string
-	NPeriods  int
+	portfolio        *portfolioHandler
+	connected        bool
+	Symbol           string
+	Name             string
+	NPeriods         int
+	lastSeenTickTime time.Time
+	tickCalls        int32
 
 	ch CoreStrategyChannels
 
@@ -99,10 +110,22 @@ type BasicStrategy struct {
 	mostRecentTime        time.Time
 	mut                   *sync.Mutex
 	isEventLoggingEnabled bool
+	log log.Logger
 }
 
 func (b *BasicStrategy) enableEventLogging() {
 	b.isEventLoggingEnabled = true
+}
+
+func (b *BasicStrategy) sendMarketData(e event) {
+	b.ch.marketdata <- e
+}
+
+func (b *BasicStrategy) readyForMarkerData() bool {
+	if atomic.LoadInt32(&b.tickCalls) == 0 {
+		return true
+	}
+	return false
 }
 
 func (b *BasicStrategy) init() {
@@ -124,6 +147,12 @@ func (b *BasicStrategy) Connect(ch CoreStrategyChannels) {
 	b.waitingConfirmation = make(map[string]struct{})
 	b.mut = &sync.Mutex{}
 	b.connected = true
+	b.tickCalls = 0
+	f, err := os.OpenFile(b.Symbol +".txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	b.log.SetOutput(f)
 
 }
 
@@ -136,9 +165,9 @@ func (b *BasicStrategy) GetTotalPnL() float64 {
 }
 
 func (b *BasicStrategy) Finish() {
-	go func() {
+	/*go func() {
 		b.terminationChan <- struct{}{}
-	}()
+	}()*/
 }
 
 //Strategy API calls
@@ -164,33 +193,76 @@ func (b *BasicStrategy) proxyEvent(e event) {
 		b.onOrderFillHandler(i)
 	case *StrategyRequestNotDeliveredEvent:
 		b.onStrategyRequestNotDeliveredEventHandler(i)
+	case *NewTickEvent:
+		b.onTickHandler(i)
+	case *TickHistoryEvent:
+		b.onTickHistoryHandler(i)
+	case *EndOfDataEvent:
+		b.onEndOfDataHandler(i)
 	default:
 		panic("Unexpected event time in strategy: " + e.getName())
 	}
 }
 
+func (b *BasicStrategy) onEndOfDataHandler(e *EndOfDataEvent) {
+	b.terminationChan <- struct{}{}
+}
+
 func (b *BasicStrategy) Run() {
+	go b.listenMarketData()
 Loop:
 	for {
 		select {
 		case e := <-b.ch.broker:
-			b.proxyEvent(e)
 			b.sendEventForLogging(e)
+			b.proxyEvent(e)
+
 		case <-b.terminationChan:
+			fmt.Println("Terminated")
+			b.ch.strategyDone <- &StrategyFinishedEvent{strategy: b.Symbol}
 			break Loop
+
 		}
+
 	}
 	b.shutDown()
+}
+
+func (b *BasicStrategy) listenMarketData() {
+
+var	prevTime  time.Time
+Loop:
+	for {
+		select {
+		case e := <-b.ch.marketdata:
+			//b.sendEventForLogging(e)
+			if e.getTime().Before(prevTime){
+				panic("Wrong order")
+			}
+			prevTime = e.getTime()
+			b.proxyEvent(e)
+
+			switch e.(type) {
+			case *EndOfDataEvent:
+				break Loop
+
+			}
+		default:
+			continue Loop
+		}
+	}
 }
 
 func (b *BasicStrategy) sendEventForLogging(e event) {
 	if !b.isEventLoggingEnabled {
 		return
 	}
-	go func() {
+	/*go func() {
 		message := fmt.Sprintf("[SE:%v]  %+v", b.Symbol, e.String())
 		b.ch.eventLogging <- message
-	}()
+	}()*/
+	message := fmt.Sprintf("[SE:%v]  %+v", b.Symbol, e.String())
+	b.log.Print(message)
 }
 
 func (b *BasicStrategy) shutDown() {
@@ -431,8 +503,6 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	b.sendEventForLogging(e)
-
 	if e.Candles == nil {
 		return
 	}
@@ -475,6 +545,9 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandleHistoryEvent) {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	atomic.AddInt32(&b.tickCalls, 1)
+	defer atomic.AddInt32(&b.tickCalls, -1)
+
 	if e == nil {
 		return
 	}
@@ -490,7 +563,6 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 
 	b.mut.Lock()
 	defer b.mut.Unlock()
-	b.sendEventForLogging(e)
 
 	b.mostRecentTime = e.Tick.Datetime
 
@@ -521,8 +593,6 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) {
 	if len(e.Ticks) == 0 {
 		return
 	}
-
-	b.sendEventForLogging(e)
 
 	allTicks := append(b.Ticks, e.Ticks...)
 
@@ -702,8 +772,8 @@ func (b *BasicStrategy) newError(err error) {
 
 func (b *BasicStrategy) newSignal(e event) {
 	go func() {
-		b.ch.signals <- e
 		b.sendEventForLogging(e)
+		b.ch.signals <- e
 	}()
 
 }

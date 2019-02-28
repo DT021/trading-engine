@@ -90,7 +90,7 @@ func findErrorsInLog() []string {
 func TestEngine_Run(t *testing.T) {
 	err := os.Remove("log.txt")
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
 	count := 0

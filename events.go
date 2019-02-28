@@ -296,3 +296,18 @@ func (c *PortfolioNewPositionEvent) getName() string {
 func (c *PortfolioNewPositionEvent) String() string {
 	return fmt.Sprintf("%v **%v** Trade: %+v", c.getStringTime(), c.getName(), c.trade.Id)
 }
+
+type StrategyFinishedEvent struct {
+	BaseEvent
+	strategy string
+}
+
+func (c *StrategyFinishedEvent) getName() string {
+	return "StrategyFinishedEvent"
+}
+
+func (c *StrategyFinishedEvent) String() string {
+	return fmt.Sprintf("%v **%v** Strategy: %+v", c.getStringTime(), c.getName(), c.strategy)
+}
+
+

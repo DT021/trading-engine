@@ -277,6 +277,7 @@ func (m *BTM) genTickEventsWithHistory() {
 				BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
 			}
 			m.newEvent(&e)
+			//time.Sleep(time.Millisecond*2)
 
 			continue
 		}

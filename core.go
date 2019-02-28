@@ -20,23 +20,27 @@ type Engine struct {
 	broker        IBroker
 	md            IMarketData
 	strategiesMap map[string]IStrategy
-	portfolio     *portfolioHandler
+	stratsCals int32
+	portfolio *portfolioHandler
 
-	terminationChan chan struct{}
-	loggingChan     chan string
-	portfolioChan   chan *PortfolioNewPositionEvent
-	errChan         chan error
-	marketDataChan  chan event
-	log             log.Logger
-	engineMode      EngineMode
-	workersG        *sync.WaitGroup
-	globalWaitGroup *sync.WaitGroup
+	terminationChan  chan struct{}
+	loggingChan      chan string
+	portfolioChan    chan *PortfolioNewPositionEvent
+	errChan          chan error
+	marketDataChan   chan event
+	strategyDone     chan *StrategyFinishedEvent
+	log              log.Logger
+	engineMode       EngineMode
+	workersG         *sync.WaitGroup
+	globalWaitGroup  *sync.WaitGroup
 	histDataTimeBack time.Duration
+	lastSeenTime     time.Time
 }
 
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
 
 	errChan := make(chan error)
+	strategyDone := make(chan *StrategyFinishedEvent)
 
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
 	eventLoggerChan := make(chan string)
@@ -51,17 +55,20 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 
 	for _, k := range symbols {
 		brokerChan := make(chan event)
+		stategyMarketData := make(chan event, 6)
 		signalsChan := make(chan event)
 		brokerNotifierChan := make(chan struct{})
 		notifyBrokerChan := make(chan *BrokerNotifyEvent)
 		cc := CoreStrategyChannels{
 			errors:         errChan,
+			marketdata:     stategyMarketData,
 			eventLogging:   eventLoggerChan,
 			signals:        signalsChan,
 			broker:         brokerChan,
 			portfolio:      portfolioChan,
 			notifyBroker:   notifyBrokerChan,
 			brokerNotifier: brokerNotifierChan,
+			strategyDone:   strategyDone,
 		}
 		sp[k].Connect(cc)
 		sp[k].setPortfolio(portfolio)
@@ -77,7 +84,6 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 		}
 
 		broker.SetSymbolChannels(k, bs)
-
 	}
 
 	mdChan := make(chan event)
@@ -99,7 +105,8 @@ func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode Eng
 	eng.workersG = &sync.WaitGroup{}
 	eng.globalWaitGroup = &sync.WaitGroup{}
 	eng.loggingChan = eventLoggerChan
-	eng.histDataTimeBack = time.Duration(20) *time.Minute
+	eng.histDataTimeBack = time.Duration(20) * time.Minute
+	eng.strategyDone = strategyDone
 
 	return &eng
 }
@@ -112,7 +119,7 @@ func (c *Engine) getSymbolStrategy(symbol string) IStrategy {
 	return st
 }
 
-func (c *Engine) SetHistoryTimeBack(duration time.Duration){
+func (c *Engine) SetHistoryTimeBack(duration time.Duration) {
 	c.histDataTimeBack = duration
 }
 
@@ -151,17 +158,17 @@ func (c *Engine) eTick(e *NewTickEvent) {
 	if e.Tick.Symbol == "" {
 		panic("Tick symbol is empty")
 	}
+	if e.Tick.Datetime.Before(c.lastSeenTime) {
+		panic("Wrong tick order in core")
+	}
+	c.lastSeenTime = e.Tick.Datetime
+
 	st := c.getSymbolStrategy(e.Tick.Symbol)
-	go func() {
-		c.globalWaitGroup.Add(1)
-		c.workersG.Add(1)
-		st.onTickHandler(e)
-		c.workersG.Done()
-		c.globalWaitGroup.Done()
-	}()
+	st.sendMarketData(e)
+
 }
 
-func (c *Engine) eCandleHistory(e *CandleHistoryEvent){
+func (c *Engine) eCandleHistory(e *CandleHistoryEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
 	go func() {
 		c.globalWaitGroup.Add(1)
@@ -173,7 +180,7 @@ func (c *Engine) eCandleHistory(e *CandleHistoryEvent){
 
 }
 
-func (c *Engine) eTickHistory(e *TickHistoryEvent){
+func (c *Engine) eTickHistory(e *TickHistoryEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
 	go func() {
 		c.globalWaitGroup.Add(1)
@@ -184,6 +191,15 @@ func (c *Engine) eTickHistory(e *TickHistoryEvent){
 	}()
 }
 
+func (c *Engine) eEndOfData(e *EndOfDataEvent) {
+	for _, st := range c.strategiesMap {
+		go func() {
+			c.workersG.Add(1)
+			st.sendMarketData(e)
+			c.workersG.Done()
+		}()
+	}
+}
 
 func (c *Engine) errorIsCritical(err error) bool {
 	return false
@@ -227,12 +243,22 @@ func (c *Engine) runStrategies() {
 }
 
 func (c *Engine) Run() {
+	c.logMessage("Engine Run")
 	c.md.RequestHistoricalData(c.histDataTimeBack)
+	c.logMessage("Request historical market data")
 	c.md.Run()
+	c.logMessage("Market data listen quotes")
 	c.broker.SubscribeEvents()
+	c.logMessage("Subscribe to broker events")
 	c.runStrategies()
+	c.logMessage("Run strategies")
+	doneStrategies := 0
+	totalStrategies := len(c.strategiesMap)
+	//seenEOD := false
+
 LOOP:
 	for {
+		//fmt.Println("LOOP")
 		select {
 		case e := <-c.portfolioChan:
 			c.updatePortfolio(e)
@@ -240,10 +266,39 @@ LOOP:
 			c.logMessage(e)
 		case e := <-c.errChan:
 			c.logError(e)
+		case e := <-c.marketDataChan:
+			//fmt.Printf(e.getName())
+			switch i := e.(type) {
+			case *NewTickEvent:
+				c.eTick(i)
+			case *CandleCloseEvent:
+				c.eCandleClose(i)
+			case *CandleOpenEvent:
+				c.eCandleOpen(i)
+			case *CandleHistoryEvent:
+				c.eCandleHistory(i)
+			case *TickHistoryEvent:
+				c.eTickHistory(i)
+			case *EndOfDataEvent:
+				//seenEOD = true
+				c.eEndOfData(i)
 
+			}
+		case <-c.strategyDone:
+			doneStrategies ++
+			fmt.Printf("Strategy is done.Left: %v", totalStrategies-doneStrategies)
+			if doneStrategies == totalStrategies {
+				break LOOP
+			}
 		default:
+			continue LOOP
+
+
+		/*default:
+			//if seenEOD{continue LOOP}
 			select {
 			case e := <-c.marketDataChan:
+				fmt.Printf(e.getName())
 				switch i := e.(type) {
 				case *NewTickEvent:
 					c.eTick(i)
@@ -256,14 +311,16 @@ LOOP:
 				case *TickHistoryEvent:
 					c.eTickHistory(i)
 				case *EndOfDataEvent:
-					break LOOP
+					//seenEOD = true
+					c.eEndOfData(i)
 				}
 			default:
 				continue LOOP
 
-			}
+			}*/
 		}
 	}
+	fmt.Println("Waiting for goroutines")
 	c.workersG.Wait()
-	c.shutDown()
+	//c.shutDown()
 }
