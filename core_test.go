@@ -2,6 +2,11 @@ package engine
 
 import (
 	"alex/marketdata"
+	"bufio"
+	"os"
+	"strings"
+	"testing"
+	"time"
 )
 
 type DummyStrategyWithLogic struct {
@@ -84,9 +89,29 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 
 }
 
+func findErrorsInLog() []string {
+	file, err := os.Open("log.txt")
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	var errors []string
 
+	scanner := bufio.NewScanner(file)
 
-/*func TestEngine_Run(t *testing.T) {
+	for scanner.Scan() {
+		line := scanner.Text()
+		meta := strings.Split(line, "|||")[0]
+		if strings.Contains(meta, "ERROR") {
+			errors = append(errors, line)
+		}
+	}
+
+	return errors
+
+}
+
+func TestEngine_Run(t *testing.T) {
 	err := os.Remove("log.txt")
 	if err != nil {
 		t.Error(err)
@@ -132,4 +157,4 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 
 	}
 
-}*/
+}

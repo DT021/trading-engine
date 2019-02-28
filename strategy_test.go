@@ -77,7 +77,7 @@ func genTickArray(n int) marketdata.TickArray {
 	ticks := make(marketdata.TickArray, n, n)
 	startTime := time.Now()
 	for i := range ticks {
-		tk := marketdata.Tick{Datetime: startTime}
+		tk := marketdata.Tick{Datetime: startTime, LastPrice:199, LastSize:99}
 		startTime = startTime.Add(time.Second * time.Duration(1))
 
 		ticks[i] = &tk
@@ -213,8 +213,8 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 	t.Log("Add old live event")
 	{
 		tm := time.Now().Add(time.Minute * time.Duration(-5))
-		oldEvent := &NewTickEvent{BaseEvent: be(tm, "TEST"), Tick: &marketdata.Tick{Datetime: tm}}
-
+		oldEvent := &NewTickEvent{BaseEvent: be(tm, "TEST"), Tick: &marketdata.Tick{Datetime: tm, LastPrice:100, LastSize:200}}
+		assert.True(t, st.tickIsValid(oldEvent.Tick))
 		wg := &sync.WaitGroup{}
 		go func() {
 			wg.Add(1)
@@ -702,7 +702,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
-		assert.Equal(t, 100, st.Position())
+		assert.Equal(t, int64(100), st.Position())
 		assert.Equal(t, 11.0, st.currentTrade.OpenPrice)
 
 		assert.Len(t, st.currentTrade.FilledOrders, 1)
@@ -736,11 +736,11 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 13, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
 
-		assert.Equal(t, 150, st.Position())
+		assert.Equal(t, int64(150), st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
 
 		assert.Equal(t, PartialFilledOrder, order.State)
-		assert.Equal(t, 50, order.ExecQty)
+		assert.Equal(t, int64(50), order.ExecQty)
 
 		assert.Equal(t, 13.0, order.ExecPrice)
 		assert.Equal(t, 12.0, order.Price)
@@ -761,11 +761,11 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		//Next fill part
 		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 13.5, Qty: 100, BaseEvent: be(time.Now(), order.Symbol)})
 
-		assert.Equal(t, 250, st.Position())
+		assert.Equal(t, int64(250), st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
 
 		assert.Equal(t, PartialFilledOrder, order.State)
-		assert.Equal(t, 150, order.ExecQty)
+		assert.Equal(t, int64(150), order.ExecQty)
 
 		expected := (13.0*50 + 13.50*100) / 150
 		assert.Equal(t, expected, order.ExecPrice)
@@ -784,11 +784,11 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		//Complete fill
 		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 11.25, Qty: 50, BaseEvent: be(time.Now(), order.Symbol)})
 
-		assert.Equal(t, 300, st.Position())
+		assert.Equal(t, int64(300), st.Position())
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
 
 		assert.Equal(t, FilledOrder, order.State)
-		assert.Equal(t, 200, order.ExecQty)
+		assert.Equal(t, int64(200), order.ExecQty)
 
 		expected = (13.0*50 + 13.50*100 + 50.0*11.25) / 200
 		assert.Equal(t, expected, order.ExecPrice)
@@ -848,7 +848,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, NewOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
 
-		assert.Equal(t, 300, st.Position())
+		assert.Equal(t, int64(300), st.Position())
 
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id, BaseEvent: be(time.Now(), order.Symbol)})
 
@@ -860,11 +860,11 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, PartialFilledOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
 
-		assert.Equal(t, 250, st.Position())
+		assert.Equal(t, int64(250), st.Position())
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
 		assert.Equal(t, 15.2, order.ExecPrice)
-		assert.Equal(t, 50, order.ExecQty)
+		assert.Equal(t, int64(50), order.ExecQty)
 		assert.Equal(t, 10.0, order.Price)
 
 		assert.Equal(t, prevOpenPrice, st.currentTrade.OpenPrice)
@@ -896,10 +896,10 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		st.onOrderFillHandler(&OrderFillEvent{OrdId: order2.Id, Price: order2.Price, Qty: order2.Qty})
 
 		assert.Equal(t, FilledOrder, order2.State)
-		assert.Equal(t, 100, order2.ExecQty)
+		assert.Equal(t, int64(100), order2.ExecQty)
 		assert.Len(t, st.currentTrade.ConfirmedOrders, 1)
 
-		assert.Equal(t, 150, st.Position())
+		assert.Equal(t, int64(150), st.Position())
 		assert.Equal(t, prevOpenPrice, st.currentTrade.OpenPrice)
 		assert.Equal(t, prevClosedPnL+(order2.Price-prevOpenPrice)*float64(order2.ExecQty), st.currentTrade.ClosedPnL)
 
@@ -910,7 +910,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		{
 			st.onOrderCancelHandler(&OrderCancelEvent{OrdId: order.Id})
 			assert.Equal(t, CanceledOrder, order.State)
-			assert.Equal(t, 50, order.ExecQty)
+			assert.Equal(t, int64(50), order.ExecQty)
 			assert.Len(t, st.currentTrade.CanceledOrders, 1)
 			assert.Len(t, st.currentTrade.ConfirmedOrders, 0)
 		}
@@ -935,7 +935,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 
 		assert.Equal(t, NewOrder, order.State)
 		assert.Equal(t, LongTrade, st.currentTrade.Type)
-		assert.Equal(t, 150, st.Position())
+		assert.Equal(t, int64(150), st.Position())
 
 		st.onOrderConfirmHandler(&OrderConfirmationEvent{OrdId: order.Id})
 
@@ -966,7 +966,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		//Complete order fill. Flat position -> short position
 		st.onOrderFillHandler(&OrderFillEvent{OrdId: order.Id, Price: 18.22, Qty: 350, BaseEvent: be(time.Now(), order.Symbol)})
 		assert.Equal(t, ShortTrade, st.currentTrade.Type)
-		assert.Equal(t, -350, st.Position())
+		assert.Equal(t, int64(-350), st.Position())
 		assert.Equal(t, 18.22, st.currentTrade.OpenPrice)
 		assert.Equal(t, 0.0, st.currentTrade.OpenPnL)
 		assert.Equal(t, 0.0, st.currentTrade.ClosedPnL)
@@ -977,7 +977,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Equal(t, (18.22*350+18.20*150)/500, order.ExecPrice)
 		assert.Equal(t, 18.16, order.Price)
-		assert.Equal(t, 500, order.ExecQty)
+		assert.Equal(t, int64(500), order.ExecQty)
 	}
 
 	t.Log("Strategy: Add to current open SHORT position")

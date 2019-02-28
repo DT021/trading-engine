@@ -73,7 +73,7 @@ func TestOrder_addExecution(t *testing.T) {
 
 		assert.Equal(t, FilledOrder, order.State)
 		assert.Equal(t, 11.0, order.ExecPrice)
-		assert.Equal(t, 200, order.ExecQty)
+		assert.Equal(t, int64(200), order.ExecQty)
 
 		t.Log("Try to add execution to filled order")
 		{
@@ -329,12 +329,12 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		}
 
 		assert.Equal(t, 20.0, trade.FilledOrders["1"].ExecPrice)
-		assert.Equal(t, 100, trade.FilledOrders["1"].ExecQty)
+		assert.Equal(t, int64(100), trade.FilledOrders["1"].ExecQty)
 
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 		assert.Equal(t, LongTrade, trade.Type)
-		assert.Equal(t, 100, trade.Qty)
+		assert.Equal(t, int64(100), trade.Qty)
 		assert.Equal(t, 20.0, trade.OpenPrice)
 		assert.Equal(t, 20.0*100, trade.OpenValue)
 		assert.Equal(t, 20.0*100, trade.MarketValue)
@@ -346,7 +346,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		trade.executeOrder("2", 100, 15, execTime)
 
 		assert.Equal(t, 15.0, trade.ConfirmedOrders["2"].ExecPrice)
-		assert.Equal(t, 100, trade.ConfirmedOrders["2"].ExecQty)
+		assert.Equal(t, int64(100), trade.ConfirmedOrders["2"].ExecQty)
 		assert.Equal(t, PartialFilledOrder, trade.ConfirmedOrders["2"].State)
 
 		assert.Equal(t, 2, len(trade.ConfirmedOrders))
@@ -354,7 +354,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 		assert.Equal(t, LongTrade, trade.Type)
-		assert.Equal(t, 200, trade.Qty)
+		assert.Equal(t, int64(200), trade.Qty)
 		assert.Equal(t, 17.5, trade.OpenPrice)
 		assert.Equal(t, 17.5*200, trade.OpenValue)
 		assert.Equal(t, 15.0*200, trade.MarketValue)
@@ -368,13 +368,13 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 1, len(trade.ConfirmedOrders))
 		assert.Equal(t, 2, len(trade.FilledOrders))
 		assert.Equal(t, 15.0, trade.FilledOrders["2"].ExecPrice)
-		assert.Equal(t, 200, trade.FilledOrders["2"].ExecQty)
+		assert.Equal(t, int64(200), trade.FilledOrders["2"].ExecQty)
 		assert.Equal(t, FilledOrder, trade.FilledOrders["2"].State)
 
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 		assert.Equal(t, LongTrade, trade.Type)
-		assert.Equal(t, 300, trade.Qty)
+		assert.Equal(t, int64(300), trade.Qty)
 		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice*100)/100)
 		assert.Equal(t, execTime0, trade.OpenTime)
 		assert.Equal(t, -500.0, trade.OpenPnL)
@@ -388,7 +388,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		trade.executeOrder("3", 100, 25, execTime)
 
 		assert.Equal(t, 25.0, trade.FilledOrders["3"].ExecPrice)
-		assert.Equal(t, 100, trade.FilledOrders["3"].ExecQty)
+		assert.Equal(t, int64(100), trade.FilledOrders["3"].ExecQty)
 		assert.Equal(t, FilledOrder, trade.FilledOrders["3"].State)
 
 		assert.Equal(t, 0, len(trade.ConfirmedOrders))
@@ -396,7 +396,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 		assert.Equal(t, LongTrade, trade.Type)
-		assert.Equal(t, 200, trade.Qty)
+		assert.Equal(t, int64(200), trade.Qty)
 		assert.Equal(t, 16.66, math.Floor(trade.OpenPrice*100)/100)
 		openPnl := (25.0 - trade.OpenPrice) * 200
 		assert.Equal(t, openPnl, trade.OpenPnL)
@@ -428,7 +428,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		newTrade, err := trade.executeOrder("4", 400, 25, execTime)
 
 		assert.Equal(t, 25.0, trade.FilledOrders["4"].ExecPrice)
-		assert.Equal(t, 400, trade.FilledOrders["4"].ExecQty)
+		assert.Equal(t, int64(400), trade.FilledOrders["4"].ExecQty)
 		assert.Equal(t, FilledOrder, trade.FilledOrders["4"].State)
 
 		if err != nil {
@@ -440,14 +440,14 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		assert.Equal(t, ClosedTrade, trade.Type)
 		assert.Equal(t, execTime, trade.CloseTime)
-		assert.Equal(t, 0, trade.Qty)
+		assert.Equal(t, int64(0), trade.Qty)
 		assert.Equal(t, 0, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
 		assert.Equal(t, 4, len(trade.FilledOrders))
 		assert.Equal(t, 0.0, trade.OpenValue)
 		assert.Equal(t, 0.0, trade.MarketValue)
 
-		assert.Equal(t, 200, newTrade.Qty)
+		assert.Equal(t, int64(200), newTrade.Qty)
 		assert.Equal(t, ShortTrade, newTrade.Type)
 		assert.Equal(t, 3, len(newTrade.ConfirmedOrders))
 		assert.Equal(t, 1, len(newTrade.FilledOrders))
@@ -466,10 +466,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 2, len(newTrade.FilledOrders))
 
 		assert.Equal(t, 20.0, newTrade.FilledOrders["7"].ExecPrice)
-		assert.Equal(t, 100, newTrade.FilledOrders["7"].ExecQty)
+		assert.Equal(t, int64(100), newTrade.FilledOrders["7"].ExecQty)
 		assert.Equal(t, FilledOrder, newTrade.FilledOrders["7"].State)
 
-		assert.Equal(t, 300, newTrade.Qty)
+		assert.Equal(t, int64(300), newTrade.Qty)
 		assert.Equal(t, ShortTrade, newTrade.Type)
 		assert.Equal(t, 2, len(newTrade.ConfirmedOrders))
 
@@ -498,10 +498,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 2, len(newTrade.ConfirmedOrders))
 		assert.Equal(t, PartialFilledOrder, newTrade.ConfirmedOrders["8"].State)
 		assert.Equal(t, 15.0, newTrade.ConfirmedOrders["8"].ExecPrice)
-		assert.Equal(t, 100, newTrade.ConfirmedOrders["8"].ExecQty)
+		assert.Equal(t, int64(100), newTrade.ConfirmedOrders["8"].ExecQty)
 
 		assert.Equal(t, ShortTrade, newTrade.Type)
-		assert.Equal(t, 200, newTrade.Qty)
+		assert.Equal(t, int64(200), newTrade.Qty)
 		assert.Equal(t, math.Floor((25.0*200+100*20.0)*100/300), math.Floor(newTrade.OpenPrice*100))
 		assert.Equal(t, newTrade.OpenPrice*200, newTrade.OpenValue)
 		assert.Equal(t, 15.0*200, newTrade.MarketValue)
@@ -518,7 +518,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.NotNil(t, err)
 
 		assert.Equal(t, ShortTrade, newTrade.Type)
-		assert.Equal(t, 200, newTrade.Qty)
+		assert.Equal(t, int64(200), newTrade.Qty)
 		assert.Equal(t, math.Floor((25.0*200+100*20.0)*100/300), math.Floor(newTrade.OpenPrice*100))
 		assert.Equal(t, newTrade.OpenPrice*200, newTrade.OpenValue)
 		assert.Equal(t, 15.0*200, newTrade.MarketValue)
@@ -538,10 +538,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		assert.Equal(t, FilledOrder, newTrade.FilledOrders["5"].State)
 		assert.Equal(t, 20.0, newTrade.FilledOrders["5"].ExecPrice)
-		assert.Equal(t, 100, newTrade.FilledOrders["5"].ExecQty)
+		assert.Equal(t, int64(100), newTrade.FilledOrders["5"].ExecQty)
 
 		assert.Equal(t, ShortTrade, newTrade.Type)
-		assert.Equal(t, 100, newTrade.Qty)
+		assert.Equal(t, int64(100), newTrade.Qty)
 		assert.Equal(t, math.Floor((25.0*200+100*20.0)*100/300), math.Floor(newTrade.OpenPrice*100))
 		assert.Equal(t, newTrade.OpenPrice*100, newTrade.OpenValue)
 		assert.Equal(t, 20.0*100, newTrade.MarketValue)
@@ -559,14 +559,14 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Nil(t, err)
 
 		assert.Equal(t, ClosedTrade, newTrade.Type)
-		assert.Equal(t, 0, newTrade.Qty)
+		assert.Equal(t, int64(0), newTrade.Qty)
 
 		assert.Equal(t, 0, len(newTrade.ConfirmedOrders))
 		assert.Equal(t, 4, len(newTrade.FilledOrders))
 
 		assert.Equal(t, FilledOrder, newTrade.FilledOrders["8"].State)
 		assert.Equal(t, 20.0, newTrade.FilledOrders["8"].ExecPrice)
-		assert.Equal(t, 200, newTrade.FilledOrders["8"].ExecQty)
+		assert.Equal(t, int64(200), newTrade.FilledOrders["8"].ExecQty)
 
 		assert.Equal(t, 0.0, newTrade.OpenPnL)
 		assert.Equal(t, 0.0, newTrade.MarketValue)
@@ -577,7 +577,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.True(t, math.Abs(expectedClosedPnL-newTrade.ClosedPnL) < 0.0002)
 
 		assert.Equal(t, FlatTrade, p.Type)
-		assert.Equal(t, 0, p.Qty)
+		assert.Equal(t, int64(0), p.Qty)
 		assert.Equal(t, 0, len(p.NewOrders))
 		assert.Equal(t, 0, len(p.ConfirmedOrders))
 		assert.Equal(t, 0, len(p.FilledOrders))
