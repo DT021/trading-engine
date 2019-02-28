@@ -110,7 +110,7 @@ type BasicStrategy struct {
 	mostRecentTime        time.Time
 	mut                   *sync.Mutex
 	isEventLoggingEnabled bool
-	log log.Logger
+	log                   log.Logger
 }
 
 func (b *BasicStrategy) enableEventLogging() {
@@ -148,7 +148,7 @@ func (b *BasicStrategy) Connect(ch CoreStrategyChannels) {
 	b.mut = &sync.Mutex{}
 	b.connected = true
 	b.tickCalls = 0
-	f, err := os.OpenFile(b.Symbol +".txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(b.Symbol+".txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -216,27 +216,25 @@ Loop:
 		case e := <-b.ch.broker:
 			b.sendEventForLogging(e)
 			b.proxyEvent(e)
-
 		case <-b.terminationChan:
 			fmt.Println("Terminated")
 			b.ch.strategyDone <- &StrategyFinishedEvent{strategy: b.Symbol}
 			break Loop
-
 		}
 
 	}
-	b.shutDown()
+
 }
 
 func (b *BasicStrategy) listenMarketData() {
 
-var	prevTime  time.Time
+	var prevTime time.Time
 Loop:
 	for {
 		select {
 		case e := <-b.ch.marketdata:
 			//b.sendEventForLogging(e)
-			if e.getTime().Before(prevTime){
+			if e.getTime().Before(prevTime) {
 				panic("Wrong order")
 			}
 			prevTime = e.getTime()
@@ -245,7 +243,6 @@ Loop:
 			switch e.(type) {
 			case *EndOfDataEvent:
 				break Loop
-
 			}
 		default:
 			continue Loop
@@ -263,10 +260,6 @@ func (b *BasicStrategy) sendEventForLogging(e event) {
 	}()*/
 	message := fmt.Sprintf("[SE:%v]  %+v", b.Symbol, e.String())
 	b.log.Print(message)
-}
-
-func (b *BasicStrategy) shutDown() {
-
 }
 
 func (b *BasicStrategy) OnCandleOpen() {

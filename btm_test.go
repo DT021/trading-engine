@@ -108,9 +108,9 @@ func newTestBTM() *BTM {
 		"Sym1",
 		"Sym2",
 		"Sym3",
-		//"Sym4",
-		//"Sym5",
-		//"Sym6",
+		"Sym4",
+		"Sym5",
+		"Sym6",
 		"Sym7",
 	}
 	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)

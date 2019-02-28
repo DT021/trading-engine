@@ -3,7 +3,6 @@ package engine
 import (
 	"alex/marketdata"
 	"bufio"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -24,10 +23,10 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 	}
 
-	pnl := b.GetTotalPnL()
+	/*pnl := b.GetTotalPnL()
 	if pnl != 0 {
 		fmt.Println(pnl)
-	}
+	}*/
 	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySent {
 
 		price := tick.LastPrice * 0.95

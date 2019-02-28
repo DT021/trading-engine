@@ -40,7 +40,7 @@ type Engine struct {
 func NewEngine(sp map[string]IStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
 
 	errChan := make(chan error)
-	strategyDone := make(chan *StrategyFinishedEvent)
+	strategyDone := make(chan *StrategyFinishedEvent, len(sp))
 
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
 	eventLoggerChan := make(chan string)
@@ -193,11 +193,7 @@ func (c *Engine) eTickHistory(e *TickHistoryEvent) {
 
 func (c *Engine) eEndOfData(e *EndOfDataEvent) {
 	for _, st := range c.strategiesMap {
-		go func() {
-			c.workersG.Add(1)
-			st.sendMarketData(e)
-			c.workersG.Done()
-		}()
+		st.sendMarketData(e)
 	}
 }
 
@@ -282,42 +278,15 @@ LOOP:
 			case *EndOfDataEvent:
 				//seenEOD = true
 				c.eEndOfData(i)
-
+			default:
+				continue LOOP
 			}
-		case <-c.strategyDone:
+		case e :=<-c.strategyDone:
 			doneStrategies ++
-			fmt.Printf("Strategy is done.Left: %v", totalStrategies-doneStrategies)
+			fmt.Printf("Strategy %v is done.Left: %v", e.strategy, totalStrategies-doneStrategies)
 			if doneStrategies == totalStrategies {
 				break LOOP
 			}
-		default:
-			continue LOOP
-
-
-		/*default:
-			//if seenEOD{continue LOOP}
-			select {
-			case e := <-c.marketDataChan:
-				fmt.Printf(e.getName())
-				switch i := e.(type) {
-				case *NewTickEvent:
-					c.eTick(i)
-				case *CandleCloseEvent:
-					c.eCandleClose(i)
-				case *CandleOpenEvent:
-					c.eCandleOpen(i)
-				case *CandleHistoryEvent:
-					c.eCandleHistory(i)
-				case *TickHistoryEvent:
-					c.eTickHistory(i)
-				case *EndOfDataEvent:
-					//seenEOD = true
-					c.eEndOfData(i)
-				}
-			default:
-				continue LOOP
-
-			}*/
 		}
 	}
 	fmt.Println("Waiting for goroutines")
