@@ -9,12 +9,17 @@ import (
 type event interface {
 	getTime() time.Time
 	getName() string
+	getSymbol() string
 	String() string
 }
 
 type BaseEvent struct {
 	Time   time.Time
 	Symbol string
+}
+
+func (c *BaseEvent) getSymbol() string{
+	return c.Symbol
 }
 
 func (c *BaseEvent) getTime() time.Time {

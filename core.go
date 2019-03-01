@@ -64,13 +64,13 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 
 	for _, k := range symbols {
 		brokerChan := make(chan event)
-		stategyMarketData := make(chan event, 6)
+		stategyMarketData := make(chan event, 80)
 		signalsChan := make(chan event)
 		brokerNotifierChan := make(chan struct{})
 		notifyBrokerChan := make(chan *BrokerNotifyEvent)
 		cc := CoreStrategyChannels{
-			errors:     errChan,
-			marketdata: stategyMarketData,
+			errors:         errChan,
+			marketdata:     stategyMarketData,
 			signals:        signalsChan,
 			broker:         brokerChan,
 			portfolio:      portfolioChan,
@@ -116,7 +116,6 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 
 	return &eng
 }
-
 
 func (c *Engine) SetHistoryTimeBack(duration time.Duration) {
 	c.histDataTimeBack = duration
@@ -229,29 +228,38 @@ LOOP:
 			c.eUpdatePortfolio(e)
 		case e := <-c.errChan:
 			c.logError(e)
-		case e := <-c.marketDataChan:
-			switch i := e.(type) {
-			case *NewTickEvent:
-				c.eTick(i)
-			case *CandleCloseEvent:
-				c.eCandleClose(i)
-			case *CandleOpenEvent:
-				c.eCandleOpen(i)
-			case *CandlesHistoryEvent:
-				c.eCandleHistory(i)
-			case *TickHistoryEvent:
-				c.eTickHistory(i)
-			case *EndOfDataEvent:
-				c.eEndOfData(i)
-			default:
-				continue LOOP
-			}
 		case e := <-c.strategyDone:
 			doneStrategies ++
 			fmt.Printf("Strategy %v is done.Left: %v", e.strategy, totalStrategies-doneStrategies)
 			if doneStrategies == totalStrategies {
 				break LOOP
 			}
+		default:
+			select {
+			case e := <-c.marketDataChan:
+				msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
+				c.logMessage(msg)
+				switch i := e.(type) {
+				case *NewTickEvent:
+					c.eTick(i)
+				case *CandleCloseEvent:
+					c.eCandleClose(i)
+				case *CandleOpenEvent:
+					c.eCandleOpen(i)
+				case *CandlesHistoryEvent:
+					c.eCandleHistory(i)
+				case *TickHistoryEvent:
+					c.eTickHistory(i)
+				case *EndOfDataEvent:
+					c.eEndOfData(i)
+
+				}
+			default:
+				continue LOOP
+
+			}
+
+
 		}
 	}
 	c.shutDown()

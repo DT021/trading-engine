@@ -3,13 +3,9 @@ package engine
 import (
 	"alex/marketdata"
 	"bufio"
-	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
-	"io/ioutil"
 	"os"
-	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,49 +45,6 @@ func TestBTM_getFilename(t *testing.T) {
 
 }
 
-type mockStorage struct {
-	folder string
-}
-
-func (s *mockStorage) GetStoredTicks(symbol string, dRange marketdata.DateRange, quotes bool, trades bool) (marketdata.TickArray, error) {
-	if dRange.From.Weekday() != dRange.To.Weekday() {
-		panic("mockStorage can work only with single date in datarange")
-	}
-	filename := dRange.To.Format("2006-01-02") + ".json"
-	pth := path.Join(s.folder, symbol, filename)
-	if _, err := os.Stat(pth); os.IsNotExist(err) {
-		return nil, err
-	}
-
-	jsonFile, err := os.Open(pth)
-
-	if err != nil {
-		return nil, err
-	}
-
-	defer jsonFile.Close()
-
-	byteValue, _ := ioutil.ReadAll(jsonFile)
-
-	var ticks marketdata.TickArray
-
-	err = json.Unmarshal(byteValue, &ticks)
-
-	if err != nil {
-		return nil, err
-	}
-
-	for _, t := range ticks {
-		t.Symbol = symbol
-	}
-
-	return ticks, err
-
-}
-
-func (s *mockStorage) GetStoredCandles(symbol string, tf string, dRange marketdata.DateRange) (*marketdata.CandleArray, error) {
-	return nil, errors.New("Not implemented method for mockStorage")
-}
 
 func newTestBTM() *BTM {
 	testSymbols := []string{
@@ -105,7 +58,7 @@ func newTestBTM() *BTM {
 	}
 	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)
 	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
-	storage := mockStorage{folder: "./test_data/json_storage/ticks/quotes_trades"}
+	storage := mockStorageJSON{folder: "./test_data/json_storage/ticks/quotes_trades"}
 	b := BTM{
 		Symbols:    testSymbols,
 		Folder:     "./test_data/BTM",

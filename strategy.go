@@ -178,6 +178,23 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) 
 
 }
 
+func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64) (string,error){
+	order := Order{
+		Side:   side,
+		Qty:    qty,
+		Symbol: b.symbol,
+		Price:  math.NaN(),
+		State:  NewOrder,
+		Type:   MarketOrder,
+		Time:   b.mostRecentTime,
+		Id:     fmt.Sprintf("%v_%v", MarketOrder, rand.Float64()),
+	}
+
+	err := b.newOrder(&order)
+	return order.Id, err
+
+}
+
 func (b *BasicStrategy) CancelOrder(ordID string) error {
 	fmt.Println("Cancel order")
 	if ordID == "" {
@@ -448,12 +465,15 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	if !b.tickIsValid(e.Tick) {
 		return
 	}
-
+	fmt.Println("Waiting for clearance"+b.symbol)
 	for atomic.LoadInt32(&b.waitingN) > 0 {
-
+		fmt.Println("Waiting... "+b.symbol)
 	}
+	fmt.Println("Clearence complited" + b.symbol)
 	b.ch.signals <- e
+	fmt.Println("Proxied MD to broker: "+b.symbol)
 	<-b.ch.brokerNotifier
+	fmt.Println("Got notification from broker" + b.symbol)
 
 	b.mut.Lock()
 	defer b.mut.Unlock()

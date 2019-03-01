@@ -4,6 +4,7 @@ import (
 	"alex/marketdata"
 	"bufio"
 	"github.com/stretchr/testify/assert"
+	"io/ioutil"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +16,7 @@ type DummyStrategyWithLogic struct {
 	idToReplace          string
 	alreadySentToCancel  bool
 	alreadySentToReplace bool
+	markerId             string
 }
 
 func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
@@ -61,6 +63,7 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 		d.idToReplace = ordId
 		d.alreadySentToReplace = true
+		return
 	}
 
 	if d.idToReplace != "" && b.IsOrderConfirmed(d.idToReplace) {
@@ -71,6 +74,15 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 		}
 		d.idToReplace = ""
 		return
+	}
+
+	if b.Position() == 300 && d.markerId == "" {
+		id, err := b.NewMarketOrder(OrderSell, 300)
+		if err != nil {
+			panic(err)
+		}
+
+		d.markerId = id
 	}
 
 }
@@ -105,6 +117,51 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	bs.init(cc)
 	return &bs
 
+}
+
+func newTestLargeBTM(folder string) *BTM {
+	files, err := ioutil.ReadDir(folder)
+	if err != nil {
+		panic(err)
+	}
+
+	var testSymbols []string
+	for _, f := range files {
+		if f.IsDir() && !strings.HasPrefix(f.Name(), ".") {
+			testSymbols = append(testSymbols, f.Name())
+		}
+	}
+
+	//testSymbols := []string{
+	//	"ATRA",
+	//}
+
+	testSymbols = testSymbols[:10]
+
+	fromDate := time.Date(2018, 3, 1, 0, 0, 0, 0, time.UTC)
+	toDate := time.Date(2018, 5, 1, 0, 0, 0, 0, time.UTC)
+	storage := mockStorageJSON{folder: folder}
+	b := BTM{
+		Symbols:    testSymbols,
+		Folder:     "./test_data/BTM",
+		LoadQuotes: true,
+		LoadTicks:  true,
+		FromDate:   fromDate,
+		ToDate:     toDate,
+		Storage:    &storage,
+	}
+
+	err = createDirIfNotExists(b.Folder)
+	if err != nil {
+		panic(err)
+	}
+
+	errChan := make(chan error)
+	eventChan := make(chan event)
+
+	b.Init(errChan, eventChan)
+
+	return &b
 }
 
 func findErrorsInLog() []string {
@@ -190,7 +247,7 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 	}
 }
 
-func TestEngine_RunSimple(t *testing.T) {
+func engineTest(t *testing.T, md *BTM, txtLogs bool) {
 	err := os.Remove("log.txt")
 	if err != nil {
 		t.Error(err)
@@ -204,7 +261,6 @@ func TestEngine_RunSimple(t *testing.T) {
 		}
 
 		broker := newTestSimBroker()
-		md := newTestBTM()
 
 		strategyMap := make(map[string]ICoreStrategy)
 		eventWritesMap := make(map[string]*eventsSliceStorage)
@@ -217,7 +273,7 @@ func TestEngine_RunSimple(t *testing.T) {
 
 		}
 
-		engine := NewEngine(strategyMap, broker, md, BacktestMode, true)
+		engine := NewEngine(strategyMap, broker, md, BacktestMode, txtLogs)
 		engine.SetHistoryTimeBack(15 * time.Second)
 
 		engine.Run()
@@ -237,4 +293,15 @@ func TestEngine_RunSimple(t *testing.T) {
 
 	}
 
+}
+
+func TestEngine_RunSimple(t *testing.T) {
+	md := newTestBTM()
+	engineTest(t, md, true)
+
+}
+
+func TestEngine_RunLargeData(t *testing.T) {
+	md := newTestLargeBTM("D:\\MarketData\\json_storage\\ticks\\quotes_trades")
+	engineTest(t, md, true)
 }

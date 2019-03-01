@@ -58,3 +58,7 @@ func (p *portfolioHandler) ClosedPnL() float64 {
 	return pnl
 
 }
+
+func (p *portfolioHandler) genResults(){
+
+}
