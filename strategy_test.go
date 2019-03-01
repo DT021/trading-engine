@@ -3,11 +3,6 @@ package engine
 import (
 	"alex/marketdata"
 	"fmt"
-	"github.com/stretchr/testify/assert"
-	"math"
-	"sync"
-	"testing"
-	"time"
 )
 
 //We use some dummy userStrategy for tests
@@ -33,28 +28,39 @@ func newTestBasicStrategy() *BasicStrategy {
 		nPeriods:     20,
 		userStrategy: &st}
 
-	brokerChan := make(chan event)
-	marketData := make(chan event)
-	signalsChan := make(chan event)
-	notifyBrokerChan := make(chan *BrokerNotifyEvent, 100) //Just to make things simple. We dont want to read from it
-	brokerNotifierChan := make(chan struct{})
-	errorsChan := make(chan error)
+
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 100)
 
 	cc := CoreStrategyChannels{
-		errors:         errorsChan,
-		marketdata:     marketData,
-		signals:        signalsChan,
-		broker:         brokerChan,
-		portfolio:      portfolioChan,
-		notifyBroker:   notifyBrokerChan,
-		brokerNotifier: brokerNotifierChan,
+		errors:                make(chan error),
+		readyAcceptMarketData: make(chan struct{}),
+		events:                make(chan event),
+		portfolio:             portfolioChan,
+		strategyDone:          make(chan *StrategyFinishedEvent),
 	}
 
 	bs.init(cc)
 	return &bs
 }
 
+func isStrategyTicksSorted(st ICoreStrategy) bool {
+	tks := st.ticks()
+	ok := true
+	for i, v := range tks {
+		if i == 0 {
+			continue
+		}
+
+		if tks[i-1].Datetime.After(v.Datetime) {
+			fmt.Println("Previous tick is after current: ", tks[i-1].Datetime, v.Datetime)
+			ok = false
+		}
+	}
+
+	return ok
+}
+
+/*
 func genTickEvents(n int) []event {
 	events := make([]event, n, n)
 	startTime := time.Now()
@@ -88,22 +94,7 @@ func genTickArray(n int) marketdata.TickArray {
 	return ticks
 }
 
-func isStrategyTicksSorted(st ICoreStrategy) bool {
-	tks := st.ticks()
-	ok := true
-	for i, v := range tks {
-		if i == 0 {
-			continue
-		}
 
-		if tks[i-1].Datetime.After(v.Datetime) {
-			fmt.Println("Previous tick is after current: ", tks[i-1].Datetime, v.Datetime)
-			ok = false
-		}
-	}
-
-	return ok
-}
 
 func TestBasicStrategy_onTickHandler(t *testing.T) {
 	st := newTestBasicStrategy()
@@ -119,7 +110,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 				st.onTickHandler(t0.(*NewTickEvent))
 				wg.Done()
 			}()
-			t1 := <-st.ch.signals //Read is  necessary.
+			t1 := <-st.ch.events //Read is  necessary.
 			assert.Equal(t, t0, t1)
 			st.ch.brokerNotifier <- struct{}{}
 			wg.Wait()
@@ -143,7 +134,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 				st.onTickHandler(t0.(*NewTickEvent))
 				wg.Done()
 			}()
-			t1 := <-st.ch.signals //Read is  necessary.
+			t1 := <-st.ch.events //Read is  necessary.
 			assert.Equal(t, t0, t1)
 			st.ch.brokerNotifier <- struct{}{}
 			wg.Wait()
@@ -193,7 +184,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 			st.onTickHandler(t0)
 			wg.Done()
 		}()
-		t1 := <-st.ch.signals //Read is  necessary.
+		t1 := <-st.ch.events //Read is  necessary.
 		assert.Equal(t, t0, t1)
 		st.ch.brokerNotifier <- struct{}{}
 		wg.Wait()
@@ -221,7 +212,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 			st.onTickHandler(oldEvent)
 			wg.Done()
 		}()
-		t1 := <-st.ch.signals //Read is  necessary.
+		t1 := <-st.ch.events //Read is  necessary.
 		assert.Equal(t, oldEvent, t1)
 		st.ch.brokerNotifier <- struct{}{}
 		wg.Wait()
@@ -242,7 +233,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 				st.onTickHandler(t0)
 				wg.Done()
 			}()
-			t1 := <-st.ch.signals //Read is  necessary.
+			t1 := <-st.ch.events //Read is  necessary.
 			assert.Equal(t, t0, t1)
 			st.ch.brokerNotifier <- struct{}{}
 			wg.Wait()
@@ -648,7 +639,7 @@ func TestBasicStrategy_OrdersFlow(t *testing.T) {
 func assertStrategyHasNewOrderEvent(t *testing.T, st *BasicStrategy) {
 
 	select {
-	case v := <-st.ch.signals:
+	case v := <-st.ch.events:
 		switch v.(type) {
 		case *NewOrderEvent:
 			t.Log("OK! Has new order event")
@@ -664,7 +655,7 @@ func assertStrategyHasNewOrderEvent(t *testing.T, st *BasicStrategy) {
 
 func assertStrategyHasNoEvents(t *testing.T, st *BasicStrategy) {
 	select {
-	case v, ok := <-st.ch.signals:
+	case v, ok := <-st.ch.events:
 		assert.False(t, ok)
 		if ok {
 			t.Errorf("ERROR! Expected no events. Found: %v", v)
@@ -1032,7 +1023,7 @@ func TestBasicStrategy_OrderFillsHandler(t *testing.T) {
 }
 
 func assertStrategyHasCancelRequest(t *testing.T, st *BasicStrategy) {
-	v, ok := <-st.ch.signals
+	v, ok := <-st.ch.events
 	if !ok {
 		t.Fatal("FATAL! Expected cancel order event.Didn't found any")
 	}
@@ -1078,4 +1069,4 @@ func TestBasicStrategy_CancelOrder(t *testing.T) {
 
 	}
 
-}
+}*/

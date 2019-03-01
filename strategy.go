@@ -20,55 +20,34 @@ const (
 )
 
 type CoreStrategyChannels struct {
-	errors         chan error
-	marketdata     chan event
-	signals        chan event
-	broker         chan event
-	portfolio      chan *PortfolioNewPositionEvent
-	notifyBroker   chan *BrokerNotifyEvent
-	brokerNotifier chan struct{}
-	strategyDone   chan *StrategyFinishedEvent
+	errors                chan error
+	readyAcceptMarketData chan struct{}
+	events                chan event
+	portfolio             chan *PortfolioNewPositionEvent
+	strategyDone          chan *StrategyFinishedEvent
 }
 
 func (c *CoreStrategyChannels) isValid() bool {
 	if c.errors == nil {
 		return false
 	}
-
-	if c.signals == nil {
-		return false
-	}
-	if c.broker == nil {
+	if c.events == nil {
 		return false
 	}
 	if c.portfolio == nil {
 		return false
 	}
-
-	if c.notifyBroker == nil {
-		return false
-	}
-
-	if c.brokerNotifier == nil {
-		return false
-	}
-
-	if c.marketdata == nil {
-		return false
-	}
-
 	return true
 }
 
 type ICoreStrategy interface {
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
-	run()
-
 	init(ch CoreStrategyChannels)
 	setPortfolio(p *portfolioHandler)
 	enableEventLogging()
-	receiveMarketData(e event)
+	OnEvent(e event)
+	readyForMD()
 }
 
 type IUserStrategy interface {
@@ -105,6 +84,9 @@ type BasicStrategy struct {
 
 //******* Connection methods ***********************
 
+func (b *BasicStrategy) readyForMD() {
+	<-b.ch.readyAcceptMarketData
+}
 func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	if !ch.isValid() {
 		panic("Core chans are not valid. Some of them is nil")
@@ -178,7 +160,7 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) 
 
 }
 
-func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64) (string,error){
+func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64) (string, error) {
 	order := Order{
 		Side:   side,
 		Qty:    qty,
@@ -281,52 +263,9 @@ func (b *BasicStrategy) LastCandleOpen() float64 {
 
 //****** MARKET DATA AND EVENT PROCESSORS ******************************************
 
-func (b *BasicStrategy) receiveMarketData(e event) {
-	b.ch.marketdata <- e
-}
-
-func (b *BasicStrategy) run() {
-	if !b.isReady {
-		panic("Can't run not initialized strategy. ")
-	}
-	go b.listenMarketData()
-Loop:
-	for {
-		select {
-		case e := <-b.ch.broker:
-			b.sendEventForLogging(e)
-			b.proxyEvent(e)
-		case <-b.terminationChan:
-			b.ch.signals <- &StrategyFinishedEvent{strategy: b.symbol}
-			b.ch.strategyDone <- &StrategyFinishedEvent{strategy: b.symbol}
-			break Loop
-		}
-
-	}
-
-}
-
-func (b *BasicStrategy) listenMarketData() {
-	var prevTime time.Time
-Loop:
-	for {
-		select {
-		case e := <-b.ch.marketdata:
-			b.sendEventForLogging(e)
-			if e.getTime().Before(prevTime) {
-				panic("Wrong order")
-			}
-			prevTime = e.getTime()
-			b.proxyEvent(e)
-
-			switch e.(type) {
-			case *EndOfDataEvent:
-				break Loop
-			}
-		default:
-
-		}
-	}
+func (b *BasicStrategy) OnEvent(e event) {
+	b.sendEventForLogging(e)
+	b.proxyEvent(e)
 }
 
 func (b *BasicStrategy) proxyEvent(e event) {
@@ -459,21 +398,20 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	defer b.markAsReadyAcceptMarketData()
+
 	if e == nil {
 		return
 	}
 	if !b.tickIsValid(e.Tick) {
 		return
 	}
-	fmt.Println("Waiting for clearance"+b.symbol)
+
 	for atomic.LoadInt32(&b.waitingN) > 0 {
-		fmt.Println("Waiting... "+b.symbol)
+		fmt.Println("Waiting... " + b.symbol)
 	}
-	fmt.Println("Clearence complited" + b.symbol)
-	b.ch.signals <- e
-	fmt.Println("Proxied MD to broker: "+b.symbol)
-	<-b.ch.brokerNotifier
-	fmt.Println("Got notification from broker" + b.symbol)
+
+	b.sendEventForLogging(e)
 
 	b.mut.Lock()
 	defer b.mut.Unlock()
@@ -493,6 +431,13 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 
 	b.userStrategy.OnTick(b, e.Tick)
 
+
+}
+
+func (b *BasicStrategy) markAsReadyAcceptMarketData(){
+	go func(){
+		b.ch.readyAcceptMarketData <- struct{}{}
+	}()
 }
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
@@ -576,8 +521,6 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 			b.notifyPortfolioAboutPosition(&PortfolioNewPositionEvent{be(e.getTime(), b.symbol), b.currentTrade})
 		}
 	}
-
-	b.ch.notifyBroker <- &BrokerNotifyEvent{be(e.Time, e.Symbol), e}
 
 }
 
@@ -679,11 +622,9 @@ func (b *BasicStrategy) newError(err error) {
 }
 
 func (b *BasicStrategy) newSignal(e event) {
-	go func() {
-		b.sendEventForLogging(e)
-		b.ch.signals <- e
-	}()
-
+	fmt.Println("New signal: " + e.String())
+	b.sendEventForLogging(e)
+	b.ch.events <- e
 }
 
 func (b *BasicStrategy) newOrder(order *Order) error {

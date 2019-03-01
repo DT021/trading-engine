@@ -1,22 +1,15 @@
 package engine
 
-import (
-	"alex/marketdata"
-	"fmt"
-	"github.com/stretchr/testify/assert"
-	"math"
-	"sync"
-	"testing"
-	"time"
-)
-
 func newTestSimBroker() *SimBroker {
 	b := SimBroker{delay: 1000}
 	b.checkExecutionsOnTicks = true
 	errChan := make(chan error)
-	b.Init(errChan, []string{""})
+	events := make(chan event)
+	b.Init(errChan, events, []string{""})
 	return &b
 }
+
+/*
 
 func newTestSimBrokerWorker() *simBrokerWorker {
 	bsc := BrokerSymbolChannels{
@@ -2651,3 +2644,5 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 	}
 
 }
+
+*/

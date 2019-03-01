@@ -35,6 +35,7 @@ type Engine struct {
 	errChan          chan error
 	marketDataChan   chan event
 	strategyDone     chan *StrategyFinishedEvent
+	events           chan event
 	log              log.Logger
 	engineMode       EngineMode
 	globalWaitGroup  *sync.WaitGroup
@@ -52,6 +53,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	errChan := make(chan error)
 	strategyDone := make(chan *StrategyFinishedEvent, len(sp))
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
+	events := make(chan event)
 
 	portfolio := newPortfolio()
 
@@ -60,38 +62,27 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 		symbols = append(symbols, k)
 	}
 
-	broker.Init(errChan, symbols)
+	broker.Init(errChan, events, symbols)
 
 	for _, k := range symbols {
-		brokerChan := make(chan event)
-		stategyMarketData := make(chan event, 80)
-		signalsChan := make(chan event)
-		brokerNotifierChan := make(chan struct{})
-		notifyBrokerChan := make(chan *BrokerNotifyEvent)
+
 		cc := CoreStrategyChannels{
-			errors:         errChan,
-			marketdata:     stategyMarketData,
-			signals:        signalsChan,
-			broker:         brokerChan,
-			portfolio:      portfolioChan,
-			notifyBroker:   notifyBrokerChan,
-			brokerNotifier: brokerNotifierChan,
-			strategyDone:   strategyDone,
+			errors:                errChan,
+			readyAcceptMarketData: make(chan struct{}),
+			events:                events,
+			portfolio:             portfolioChan,
+			strategyDone:          strategyDone,
 		}
+
+		go func() {
+			cc.readyAcceptMarketData <- struct{}{}
+		}()
 		sp[k].init(cc)
 		sp[k].setPortfolio(portfolio)
 		if logEvents {
 			sp[k].enableEventLogging()
 		}
 
-		bs := BrokerSymbolChannels{
-			signals:        signalsChan,
-			broker:         brokerChan,
-			brokerNotifier: brokerNotifierChan,
-			notifyBroker:   notifyBrokerChan,
-		}
-
-		broker.SetSymbolChannels(k, bs)
 	}
 
 	mdChan := make(chan event)
@@ -101,6 +92,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 		symbols:        symbols,
 		broker:         broker,
 		md:             md,
+		events:         events,
 		strategiesMap:  sp,
 		errChan:        errChan,
 		marketDataChan: mdChan,
@@ -113,6 +105,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	eng.globalWaitGroup = &sync.WaitGroup{}
 	eng.histDataTimeBack = time.Duration(20) * time.Minute
 	eng.strategyDone = strategyDone
+	eng.terminationChan = make(chan struct{})
 
 	return &eng
 }
@@ -155,13 +148,11 @@ func (c *Engine) logMessage(message string) {
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.receiveMarketData(e)
+	//st := c.getSymbolStrategy(e.Symbol)
+	//st.receiveMarketData(e)
 }
 
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.receiveMarketData(e)
 
 }
 
@@ -170,19 +161,22 @@ func (c *Engine) eTick(e *NewTickEvent) {
 		panic("Tick symbol is empty")
 	}
 	st := c.getSymbolStrategy(e.Tick.Symbol)
-	st.receiveMarketData(e)
+	fmt.Println("Waiting for confirmation: "+e.getSymbol())
+	st.readyForMD()
+	fmt.Println("Got confirmation: "+e.getSymbol())
+
+	c.broker.OnEvent(e)
+	st.OnEvent(e)
 
 }
 
 func (c *Engine) eCandleHistory(e *CandlesHistoryEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
-	st.receiveMarketData(e)
 
 }
 
 func (c *Engine) eTickHistory(e *TickHistoryEvent) {
 	st := c.getSymbolStrategy(e.Symbol)
-	st.receiveMarketData(e)
+	st.OnEvent(e)
 }
 
 func (c *Engine) eUpdatePortfolio(e *PortfolioNewPositionEvent) {
@@ -190,20 +184,90 @@ func (c *Engine) eUpdatePortfolio(e *PortfolioNewPositionEvent) {
 }
 
 func (c *Engine) eEndOfData(e *EndOfDataEvent) {
-	for _, st := range c.strategiesMap {
-		st.receiveMarketData(e)
-	}
+	c.terminationChan <- struct{}{}
+
 }
 
 func (c *Engine) errorIsCritical(err error) bool {
 	return false
 }
 
-func (c *Engine) runStrategies() {
-	for _, s := range c.strategiesMap {
-		c.globalWaitGroup.Add(1)
-		go s.run()
-		c.globalWaitGroup.Done()
+func (c *Engine) listendMD() {
+	fmt.Println("Listen RealTime")
+Loop:
+	for {
+		select {
+		case e := <-c.marketDataChan:
+			fmt.Println(e.getName() + " "+ e.getSymbol())
+			msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
+			c.logMessage(msg)
+			switch i := e.(type) {
+			case *NewTickEvent:
+				c.eTick(i)
+			case *CandleCloseEvent:
+				c.eCandleClose(i)
+			case *CandleOpenEvent:
+				c.eCandleOpen(i)
+			case *CandlesHistoryEvent:
+				c.eCandleHistory(i)
+			case *TickHistoryEvent:
+				c.eTickHistory(i)
+			case *EndOfDataEvent:
+				fmt.Println("EOD")
+				c.shutDown()
+				go c.eEndOfData(i)
+				break Loop
+			}
+		}
+	}
+
+}
+
+func (c *Engine) listenEvents() {
+LOOP:
+	for {
+		//fmt.Println("EventLoop")
+
+		select {
+		case e := <-c.events:
+			go c.proxyEvent(e)
+		case e := <-c.portfolioChan:
+			c.eUpdatePortfolio(e)
+		case e := <-c.errChan:
+			c.logError(e)
+		case <-c.terminationChan:
+			fmt.Println("Terminated")
+			break LOOP
+
+		}
+	}
+
+}
+
+func (c *Engine) proxyEvent(e event) {
+	st := c.getSymbolStrategy(e.getSymbol())
+	switch e.(type) {
+	case *NewOrderEvent:
+		c.broker.OnEvent(e)
+	case *OrderCancelRequestEvent:
+		c.broker.OnEvent(e)
+	case *OrderReplaceRequestEvent:
+		c.broker.OnEvent(e)
+	case *OrderCancelEvent:
+		st.OnEvent(e)
+	case *OrderCancelRejectEvent:
+		st.OnEvent(e)
+	case *OrderConfirmationEvent:
+		st.OnEvent(e)
+	case *OrderReplacedEvent:
+		st.OnEvent(e)
+	case *OrderReplaceRejectEvent:
+		st.OnEvent(e)
+	case *OrderRejectedEvent:
+		st.OnEvent(e)
+	case *OrderFillEvent:
+		st.OnEvent(e)
+
 	}
 }
 
@@ -213,64 +277,29 @@ func (c *Engine) Run() {
 	c.logMessage("Request historical market data")
 	c.md.Run()
 	c.logMessage("Market data listen quotes")
-	c.broker.SubscribeEvents()
-	c.logMessage("Subscribe to broker events")
-	c.runStrategies()
-	c.logMessage("Run strategies")
-	doneStrategies := 0
-	totalStrategies := len(c.strategiesMap)
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	go func() {
 
-LOOP:
-	for {
+		c.listenEvents()
+		wg.Done()
+		fmt.Println("Events done")
+	}()
 
-		select {
-		case e := <-c.portfolioChan:
-			c.eUpdatePortfolio(e)
-		case e := <-c.errChan:
-			c.logError(e)
-		case e := <-c.strategyDone:
-			doneStrategies ++
-			fmt.Printf("Strategy %v is done.Left: %v", e.strategy, totalStrategies-doneStrategies)
-			if doneStrategies == totalStrategies {
-				break LOOP
-			}
-		default:
-			select {
-			case e := <-c.marketDataChan:
-				msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
-				c.logMessage(msg)
-				switch i := e.(type) {
-				case *NewTickEvent:
-					c.eTick(i)
-				case *CandleCloseEvent:
-					c.eCandleClose(i)
-				case *CandleOpenEvent:
-					c.eCandleOpen(i)
-				case *CandlesHistoryEvent:
-					c.eCandleHistory(i)
-				case *TickHistoryEvent:
-					c.eTickHistory(i)
-				case *EndOfDataEvent:
-					c.eEndOfData(i)
+	go func() {
+		//wg.Add(1)
+		c.listendMD()
+		wg.Done()
+		fmt.Println("MD done")
+	}()
 
-				}
-			default:
-				continue LOOP
+	wg.Wait()
 
-			}
-
-
-		}
-	}
-	c.shutDown()
+	//c.shutDown()
 }
 
 func (c *Engine) shutDown() {
-	c.logMessage("Shutting down engine.")
-	c.logMessage("Unsubscribe broker events.")
-	//c.broker.UnSubscribeEvents()
-
-	c.logMessage("Waiting for goroutines finish their work.")
-	c.globalWaitGroup.Wait()
-	c.logMessage("All is done!")
+	for _, st := range c.strategiesMap{
+		st.readyForMD()
+	}
 }

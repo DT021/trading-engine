@@ -12,17 +12,9 @@ import (
 type IBroker interface {
 	Connect()
 	Disconnect()
-	Init(err chan error, symbols []string)
-	SubscribeEvents()
-	SetSymbolChannels(symbol string, bs BrokerSymbolChannels)
+	Init(errChan chan error, events chan event, symbols []string)
 	IsSimulated() bool
-}
-
-type BrokerSymbolChannels struct {
-	signals        chan event
-	broker         chan event
-	brokerNotifier chan struct{}
-	notifyBroker   chan *BrokerNotifyEvent
+	OnEvent(e event)
 }
 
 type simBrokerOrder struct {
@@ -49,7 +41,7 @@ func (b *SimBroker) Disconnect() {
 	fmt.Println("SimBroker connected")
 }
 
-func (b *SimBroker) Init(errChan chan error, symbols []string) {
+func (b *SimBroker) Init(errChan chan error, events chan event, symbols []string) {
 	if len(symbols) == 0 {
 		panic("No symbols specified")
 	}
@@ -59,6 +51,7 @@ func (b *SimBroker) Init(errChan chan error, symbols []string) {
 		bw := simBrokerWorker{
 			symbol:               s,
 			errChan:              errChan,
+			events:               events,
 			terminationChan:      make(chan struct{}),
 			delay:                b.delay,
 			strictLimitOrders:    b.strictLimitOrders,
@@ -72,18 +65,24 @@ func (b *SimBroker) Init(errChan chan error, symbols []string) {
 	}
 }
 
-func (b *SimBroker) SubscribeEvents() {
-	for _, w := range b.workers {
-		go w.run()
-	}
+func (b *SimBroker) OnEvent(e event) {
+	w := b.workers[e.getSymbol()]
+	b.proxyEvent(w, e)
 }
 
-func (b *SimBroker) SetSymbolChannels(symbol string, bs BrokerSymbolChannels) {
-	w, ok := b.workers[symbol]
-	if !ok {
-		panic("Can't set channel for symbol not in workers")
+func (b *SimBroker) proxyEvent(w *simBrokerWorker, e event) {
+	switch i := e.(type) {
+	case *NewOrderEvent:
+		w.onNewOrder(i)
+	case *OrderCancelRequestEvent:
+		w.onCancelRequest(i)
+	case *OrderReplaceRequestEvent:
+		w.onReplaceRequest(i)
+	case *NewTickEvent:
+		w.onTick(i.Tick)
+	default:
+		panic("Unexpected event time in broker: " + e.getName())
 	}
-	w.ch = bs
 }
 
 func (b *SimBroker) IsSimulated() bool {
@@ -92,9 +91,11 @@ func (b *SimBroker) IsSimulated() bool {
 
 //*******simBrokerWorker**********************************************
 type simBrokerWorker struct {
-	symbol               string
-	errChan              chan error
-	ch                   BrokerSymbolChannels
+	symbol            string
+	errChan           chan error
+	events            chan event
+	eventReceivedChan chan event
+
 	terminationChan      chan struct{}
 	delay                int64
 	strictLimitOrders    bool
@@ -102,38 +103,6 @@ type simBrokerWorker struct {
 	marketCloseUntilTime TimeOfDay
 	mpMutext             *sync.RWMutex
 	orders               map[string]*simBrokerOrder
-}
-
-func (b *simBrokerWorker) run() {
-Loop:
-	for {
-		select {
-		case e := <-b.ch.signals:
-			switch e.(type) {
-			case *StrategyFinishedEvent:
-				break Loop
-			}
-			b.proxyEvent(e)
-		case <-b.terminationChan:
-			break Loop
-		}
-	}
-
-}
-
-func (b *simBrokerWorker) proxyEvent(e event) {
-	switch i := e.(type) {
-	case *NewOrderEvent:
-		b.onNewOrder(i)
-	case *OrderCancelRequestEvent:
-		b.onCancelRequest(i)
-	case *OrderReplaceRequestEvent:
-		b.onReplaceRequest(i)
-	case *NewTickEvent:
-		b.onTick(i.Tick)
-	default:
-		panic("Unexpected event time in broker: " + e.getName())
-	}
 }
 
 func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
@@ -182,7 +151,6 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 	}
 
 	b.executeBrokerEvent(&confEvent)
-	fmt.Println("Order confirmed")
 
 }
 
@@ -342,9 +310,6 @@ func (b *simBrokerWorker) onCandleClose(e *CandleCloseEvent) {
 }
 
 func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
-	defer func() {
-		b.ch.brokerNotifier <- struct{}{}
-	}()
 
 	if !b.tickIsValid(tick) {
 		err := ErrBrokenTick{
@@ -902,9 +867,6 @@ func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expec
 }
 
 func (b *simBrokerWorker) executeBrokerEvent(e event) {
-	if b.ch.broker == nil {
-		panic("Simulated broker event chan is nil")
-	}
 
 	needWaitStrategyNotification := false
 
@@ -960,10 +922,12 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 		ord.StateUpdTime = e.getTime()
 
 	}
-
-	b.ch.broker <- e
 	if needWaitStrategyNotification {
-		<-b.ch.notifyBroker
+		b.events <- e
+	} else {
+		go func() {
+			b.events <- e
+		}()
 	}
 
 }
