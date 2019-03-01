@@ -221,8 +221,7 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 			case *OrderReplacedEvent:
 				assert.Equal(t, pv.OrdId, v.OrdId)
 				prevEvent = v
-			default:
-				t.Errorf("Unexpected event type: %v", v)
+
 
 			}
 		case *OrderCancelRequestEvent:

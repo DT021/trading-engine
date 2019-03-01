@@ -28,6 +28,7 @@ type Engine struct {
 	broker        IBroker
 	md            IMarketData
 	strategiesMap map[string]ICoreStrategy
+	syncGroupMap  map[string]*sync.WaitGroup
 
 	portfolio        *portfolioHandler
 	terminationChan  chan struct{}
@@ -40,6 +41,7 @@ type Engine struct {
 	engineMode       EngineMode
 	globalWaitGroup  *sync.WaitGroup
 	histDataTimeBack time.Duration
+	mut              *sync.Mutex
 }
 
 func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
@@ -64,7 +66,10 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 
 	broker.Init(errChan, events, symbols)
 
+	syncGroupMap := make(map[string]*sync.WaitGroup)
+
 	for _, k := range symbols {
+		syncGroupMap[k] = &sync.WaitGroup{}
 
 		cc := CoreStrategyChannels{
 			errors:                errChan,
@@ -74,9 +79,9 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 			strategyDone:          strategyDone,
 		}
 
-		go func() {
+		/*go func() {
 			cc.readyAcceptMarketData <- struct{}{}
-		}()
+		}()*/
 		sp[k].init(cc)
 		sp[k].setPortfolio(portfolio)
 		if logEvents {
@@ -106,6 +111,8 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	eng.histDataTimeBack = time.Duration(20) * time.Minute
 	eng.strategyDone = strategyDone
 	eng.terminationChan = make(chan struct{})
+	eng.syncGroupMap = syncGroupMap
+	eng.mut = &sync.Mutex{}
 
 	return &eng
 }
@@ -160,11 +167,8 @@ func (c *Engine) eTick(e *NewTickEvent) {
 	if e.Tick.Symbol == "" {
 		panic("Tick symbol is empty")
 	}
-	st := c.getSymbolStrategy(e.Tick.Symbol)
-	fmt.Println("Waiting for confirmation: "+e.getSymbol())
-	st.readyForMD()
-	fmt.Println("Got confirmation: "+e.getSymbol())
 
+	st := c.getSymbolStrategy(e.Tick.Symbol)
 	c.broker.OnEvent(e)
 	st.OnEvent(e)
 
@@ -198,7 +202,7 @@ Loop:
 	for {
 		select {
 		case e := <-c.marketDataChan:
-			fmt.Println(e.getName() + " "+ e.getSymbol())
+			fmt.Println(e.getName() + " " + e.getSymbol())
 			msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
 			c.logMessage(msg)
 			switch i := e.(type) {
@@ -214,7 +218,7 @@ Loop:
 				c.eTickHistory(i)
 			case *EndOfDataEvent:
 				fmt.Println("EOD")
-				c.shutDown()
+				//c.shutDown()
 				go c.eEndOfData(i)
 				break Loop
 			}
@@ -299,7 +303,7 @@ func (c *Engine) Run() {
 }
 
 func (c *Engine) shutDown() {
-	for _, st := range c.strategiesMap{
+	for _, st := range c.strategiesMap {
 		st.readyForMD()
 	}
 }

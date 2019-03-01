@@ -48,6 +48,7 @@ type ICoreStrategy interface {
 	enableEventLogging()
 	OnEvent(e event)
 	readyForMD()
+	Wait()
 }
 
 type IUserStrategy interface {
@@ -77,6 +78,7 @@ type BasicStrategy struct {
 	mut                        *sync.Mutex
 	isEventLoggingEnabled      bool
 	isEventSliceStorageEnabled bool
+	wg *sync.WaitGroup
 
 	log         log.Logger
 	eventsSlice eventsSliceStorage
@@ -105,6 +107,7 @@ func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	}
 
 	b.isReady = true
+	b.wg = &sync.WaitGroup{}
 
 }
 
@@ -297,6 +300,10 @@ func (b *BasicStrategy) proxyEvent(e event) {
 	}
 }
 
+func (b *BasicStrategy) Wait(){
+	b.wg.Wait()
+}
+
 //****** EVENT HANDLERS *******************************************************
 
 func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
@@ -398,7 +405,7 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 }
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
-	defer b.markAsReadyAcceptMarketData()
+
 
 	if e == nil {
 		return
@@ -411,10 +418,14 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		fmt.Println("Waiting... " + b.symbol)
 	}
 
-	b.sendEventForLogging(e)
-
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+
+	b.sendEventForLogging(e)
+	b.wg = &sync.WaitGroup{}
+	b.wg.Add(1)
+	defer b.wg.Done()
 
 	b.mostRecentTime = e.Tick.Datetime
 
@@ -435,9 +446,9 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 }
 
 func (b *BasicStrategy) markAsReadyAcceptMarketData(){
-	go func(){
-		b.ch.readyAcceptMarketData <- struct{}{}
-	}()
+	//go func(){
+	//	b.ch.readyAcceptMarketData <- struct{}{}
+	//}()
 }
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
