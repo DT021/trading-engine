@@ -3,6 +3,7 @@ package engine
 import (
 	"alex/marketdata"
 	"bufio"
+	"github.com/stretchr/testify/assert"
 	"os"
 	"strings"
 	"testing"
@@ -10,8 +11,10 @@ import (
 )
 
 type DummyStrategyWithLogic struct {
-	idToCancel  string
-	alreadySent bool
+	idToCancel           string
+	idToReplace          string
+	alreadySentToCancel  bool
+	alreadySentToReplace bool
 }
 
 func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
@@ -30,31 +33,46 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 			panic(err)
 		}
 	}
-
-	/*pnl := b.GetTotalPnL()
-	if pnl != 0 {
-		fmt.Println(pnl)
-	}*/
-	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySent {
-
+	if len(b.currentTrade.FilledOrders) == 1 && d.idToCancel == "" && !d.alreadySentToCancel {
 		price := tick.LastPrice * 0.95
 		ordId, err := b.NewLimitOrder(price, OrderBuy, 200)
 		if err != nil {
 			panic(err)
 		}
 		d.idToCancel = ordId
-		d.alreadySent = true
+		d.alreadySentToCancel = true
 
 	}
 
-	if d.idToCancel != "" && b.OrderIsConfirmed(d.idToCancel) {
+	if d.idToCancel != "" && b.IsOrderConfirmed(d.idToCancel) {
 		err := b.CancelOrder(d.idToCancel)
 		if err != nil {
 			panic(err)
 		}
 		d.idToCancel = ""
-
+		return
 	}
+
+	if d.idToCancel == "" && d.alreadySentToCancel && !d.alreadySentToReplace {
+		price := tick.LastPrice * 0.94
+		ordId, err := b.NewLimitOrder(price, OrderBuy, 200)
+		if err != nil {
+			panic(err)
+		}
+		d.idToReplace = ordId
+		d.alreadySentToReplace = true
+	}
+
+	if d.idToReplace != "" && b.IsOrderConfirmed(d.idToReplace) {
+		price := tick.LastPrice * 0.99
+		err := b.ReplaceOrder(d.idToReplace, price)
+		if err != nil {
+			panic(err)
+		}
+		d.idToReplace = ""
+		return
+	}
+
 }
 
 func newTestStrategyWithLogic(symbol string) *BasicStrategy {
@@ -94,7 +112,12 @@ func findErrorsInLog() []string {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer func() {
+		err := file.Close()
+		if err != nil {
+			panic(err)
+		}
+	}()
 	var errors []string
 
 	scanner := bufio.NewScanner(file)
@@ -106,12 +129,68 @@ func findErrorsInLog() []string {
 			errors = append(errors, line)
 		}
 	}
-
 	return errors
 
 }
 
-func TestEngine_Run(t *testing.T) {
+func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
+	var prevEvent event
+	var prevMarketData event
+	assert.True(t, len(genEvents) > 0)
+	for _, e := range genEvents {
+		switch v := e.(type) {
+		case *NewTickEvent:
+			if prevMarketData == nil {
+				prevMarketData = v
+				continue
+			}
+			assert.False(t, v.Tick.Datetime.Before(prevMarketData.getTime()))
+			prevMarketData = v
+			continue
+		case *NewOrderEvent:
+			if prevEvent != nil {
+				assert.IsType(t, &OrderFillEvent{}, prevEvent)
+			}
+			prevEvent = v
+		case *OrderConfirmationEvent:
+			assert.IsType(t, &NewOrderEvent{}, prevEvent)
+			assert.True(t, v.getTime().After(prevEvent.getTime()))
+			prevEvent = v
+		case *OrderFillEvent:
+			switch pv := prevEvent.(type) {
+			case *OrderConfirmationEvent:
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+				prevEvent = v
+			case *OrderFillEvent:
+				assert.Equal(t, pv.OrdId, v.OrdId)
+				prevEvent = v
+			case *OrderReplacedEvent:
+				assert.Equal(t, pv.OrdId, v.OrdId)
+				prevEvent = v
+			default:
+				t.Errorf("Unexpected event type: %v", v)
+
+			}
+		case *OrderCancelRequestEvent:
+			assert.IsType(t, &OrderConfirmationEvent{}, prevEvent)
+			prevEvent = v
+		case *OrderReplaceRequestEvent:
+			assert.IsType(t, &OrderConfirmationEvent{}, prevEvent)
+			prevEvent = v
+		case *OrderCancelEvent:
+			assert.IsType(t, &OrderCancelRequestEvent{}, prevEvent)
+			assert.True(t, v.getTime().After(prevEvent.getTime()))
+			prevEvent = nil
+		case *OrderReplacedEvent:
+			assert.IsType(t, &OrderReplaceRequestEvent{}, prevEvent)
+			assert.True(t, v.getTime().After(prevEvent.getTime()))
+			prevEvent = v
+
+		}
+	}
+}
+
+func TestEngine_RunSimple(t *testing.T) {
 	err := os.Remove("log.txt")
 	if err != nil {
 		t.Error(err)
@@ -128,9 +207,12 @@ func TestEngine_Run(t *testing.T) {
 		md := newTestBTM()
 
 		strategyMap := make(map[string]ICoreStrategy)
+		eventWritesMap := make(map[string]*eventsSliceStorage)
 
 		for _, s := range md.Symbols {
 			st := newTestStrategyWithLogic(s)
+			st.enableEventSliceStorage()
+			eventWritesMap[s] = &st.eventsSlice
 			strategyMap[s] = st
 
 		}
@@ -141,19 +223,17 @@ func TestEngine_Run(t *testing.T) {
 		engine.Run()
 
 		t.Logf("Engine #%v finished!", count)
-		errorsFound := findErrorsInLog()
-		if len(errorsFound) == 0 {
-			t.Logf("Engine #%v OK! No errors found", count)
-		} else {
-			t.Errorf("Found %v errors in Engine #%v", len(errorsFound), count)
-			for _, err := range errorsFound {
-				t.Error(err)
-			}
-			break
+		for k, st := range eventWritesMap {
+			t.Logf("Checking %v strategy", k)
+			assertStrategyWorksCorrect(t, st.storedEvents())
 		}
 
-		engine = nil
-		time.Sleep(10 * time.Microsecond)
+		errors := findErrorsInLog()
+		assert.Len(t, errors, 0)
+
+		for _, st := range strategyMap {
+			assert.True(t, isStrategyTicksSorted(st))
+		}
 
 	}
 

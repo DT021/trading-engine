@@ -78,39 +78,32 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
-	portfolio             *portfolioHandler
-	isReady               bool
-	symbol                string
-	nPeriods              int
-	lastSeenTickTime      time.Time
-	ch                    CoreStrategyChannels
-	terminationChan       chan struct{}
-	waitingConfirmation   map[string]struct{}
-	waitingN              int32
-	closedTrades          []*Trade
-	currentTrade          *Trade
-	Ticks                 marketdata.TickArray
-	Candles               marketdata.CandleArray
-	lastCandleOpen        float64
-	lastCandleOpenTime    time.Time
-	userStrategy          IUserStrategy
-	mostRecentTime        time.Time
-	mut                   *sync.Mutex
-	isEventLoggingEnabled bool
-	log                   log.Logger
+	portfolio                  *portfolioHandler
+	isReady                    bool
+	symbol                     string
+	nPeriods                   int
+	lastSeenTickTime           time.Time
+	ch                         CoreStrategyChannels
+	terminationChan            chan struct{}
+	waitingConfirmation        map[string]struct{}
+	waitingN                   int32
+	closedTrades               []*Trade
+	currentTrade               *Trade
+	Ticks                      marketdata.TickArray
+	Candles                    marketdata.CandleArray
+	lastCandleOpen             float64
+	lastCandleOpenTime         time.Time
+	userStrategy               IUserStrategy
+	mostRecentTime             time.Time
+	mut                        *sync.Mutex
+	isEventLoggingEnabled      bool
+	isEventSliceStorageEnabled bool
+
+	log         log.Logger
+	eventsSlice eventsSliceStorage
 }
 
 //******* Connection methods ***********************
-
-func (b *BasicStrategy) enableEventLogging() {
-	pth := path.Join("./StrategyLogs", b.symbol+".txt")
-	f, err := os.OpenFile(pth, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		panic(err)
-	}
-	b.log.SetOutput(f)
-	b.isEventLoggingEnabled = true
-}
 
 func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	if !ch.isValid() {
@@ -159,8 +152,13 @@ func (b *BasicStrategy) Position() int64 {
 
 }
 
-func (b *BasicStrategy) OrderIsConfirmed(ordId string) bool {
+func (b *BasicStrategy) IsOrderConfirmed(ordId string) bool {
 	return b.currentTrade.hasConfirmedOrderWithId(ordId)
+}
+
+func (b *BasicStrategy) OrderStatus(ordId string) OrderState {
+	//Todo
+	return ""
 }
 
 func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) (string, error) {
@@ -709,12 +707,29 @@ func (b *BasicStrategy) notifyPortfolioAboutPosition(e *PortfolioNewPositionEven
 	}()
 }
 
-func (b *BasicStrategy) sendEventForLogging(e event) {
-	if !b.isEventLoggingEnabled {
-		return
+func (b *BasicStrategy) enableEventLogging() {
+	pth := path.Join("./StrategyLogs", b.symbol+".txt")
+	f, err := os.OpenFile(pth, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
 	}
-	message := fmt.Sprintf("[SE:%v]  %+v", b.symbol, e.String())
-	b.log.Print(message)
+	b.log.SetOutput(f)
+	b.isEventLoggingEnabled = true
+}
+
+func (b *BasicStrategy) enableEventSliceStorage() {
+	b.isEventSliceStorageEnabled = true
+	b.eventsSlice = eventsSliceStorage{mut: &sync.Mutex{}}
+}
+
+func (b *BasicStrategy) sendEventForLogging(e event) {
+	if b.isEventLoggingEnabled {
+		message := fmt.Sprintf("[SE:%v]  %+v", b.symbol, e.String())
+		b.log.Print(message)
+	}
+	if b.isEventSliceStorageEnabled {
+		b.eventsSlice.add(e)
+	}
 }
 
 func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {

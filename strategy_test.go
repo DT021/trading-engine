@@ -88,7 +88,7 @@ func genTickArray(n int) marketdata.TickArray {
 	return ticks
 }
 
-func isTicksSorted(st ICoreStrategy) bool {
+func isStrategyTicksSorted(st ICoreStrategy) bool {
 	tks := st.ticks()
 	ok := true
 	for i, v := range tks {
@@ -96,7 +96,7 @@ func isTicksSorted(st ICoreStrategy) bool {
 			continue
 		}
 
-		if !tks[i-1].Datetime.Before(v.Datetime) {
+		if tks[i-1].Datetime.After(v.Datetime) {
 			fmt.Println("Previous tick is after current: ", tks[i-1].Datetime, v.Datetime)
 			ok = false
 		}
@@ -128,7 +128,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		if len(st.Ticks) != 10 {
 			t.Fatalf("\tLen ticks in userStrategy should be 10")
 		}
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 	}
 
 	t.Log("Adding 20 more ticks. We expect to have only this 20 new ticks")
@@ -156,7 +156,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		if st.Ticks[0].Datetime != oldestTime {
 			t.Errorf("Expected: %s\n Got %s First stored tick time is wrong", oldestTime, st.Ticks[0].Datetime)
 		}
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 	}
 
 	t.Log("Add nil tick event ")
@@ -165,7 +165,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		st.onTickHandler(nil)
 
 		assert.Equal(t, lastListedTick, st.Ticks[len(st.Ticks)-1], "Ticks are not the same")
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 	}
 
 	t.Log("Add tick event with nil Tick value")
@@ -173,7 +173,7 @@ func TestBasicStrategy_onTickHandler(t *testing.T) {
 		lastListedTick := st.Ticks[len(st.Ticks)-1]
 		st.onTickHandler(&NewTickEvent{Tick: nil})
 		assert.Equal(t, lastListedTick, st.Ticks[len(st.Ticks)-1], "Ticks are not the same")
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 	}
 
 }
@@ -206,7 +206,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 		e := TickHistoryEvent{BaseEvent: be(histTicks[0].Datetime, "TEST"), Ticks: histTicks}
 		st.onTickHistoryHandler(&e)
 		assert.Equal(t, 20, len(st.Ticks))
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 
 	}
 
@@ -226,7 +226,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 		st.ch.brokerNotifier <- struct{}{}
 		wg.Wait()
 		assert.Equal(t, 20, len(st.Ticks))
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 
 	}
 
@@ -249,7 +249,7 @@ func TestBasicStrategy_onTickHistoryHandler(t *testing.T) {
 
 		}
 
-		assert.True(t, isTicksSorted(st))
+		assert.True(t, isStrategyTicksSorted(st))
 	}
 
 }

@@ -117,6 +117,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	return &eng
 }
 
+
 func (c *Engine) SetHistoryTimeBack(duration time.Duration) {
 	c.histDataTimeBack = duration
 }

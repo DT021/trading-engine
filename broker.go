@@ -916,6 +916,7 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 			panic("Confirmation of not existing order")
 		}
 		ord.BrokerState = ConfirmedOrder
+		ord.StateUpdTime = e.getTime()
 
 	case *OrderCancelEvent:
 		ord, ok := b.orders[i.OrdId]
@@ -925,6 +926,7 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 		}
 
 		ord.BrokerState = CanceledOrder
+		ord.StateUpdTime = e.getTime()
 
 	case *OrderFillEvent:
 		ord, ok := b.orders[i.OrdId]
@@ -955,13 +957,13 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 			ord.BrokerState = RejectedOrder
 		}
 
+		ord.StateUpdTime = e.getTime()
+
 	}
 
 	b.ch.broker <- e
 	if needWaitStrategyNotification {
-		fmt.Println("Waiting for notification")
 		<-b.ch.notifyBroker
-		fmt.Println("Got notification")
 	}
 
 }
