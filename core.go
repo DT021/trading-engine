@@ -178,7 +178,7 @@ func (c *Engine) eTick(e *NewTickEvent) {
 
 	st := c.getSymbolStrategy(e.Tick.Symbol)
 	c.broker.OnEvent(e)
-	st.OnEvent(e)
+	st.onTickHandler(e)
 
 }
 
@@ -215,8 +215,8 @@ Loop:
 		select {
 		case e := <-c.marketDataChan:
 			//fmt.Println(e.getName() + " " + e.getSymbol())
-			msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
-			c.logMessage(msg)
+			//msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
+			//c.logMessage(msg)
 			switch i := e.(type) {
 			case *NewTickEvent:
 				c.eTick(i)

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -48,7 +49,7 @@ type ICoreStrategy interface {
 	enableEventLogging()
 	OnEvent(e event)
 	readyForMD()
-	Wait()
+	onTickHandler(e *NewTickEvent)
 }
 
 type IUserStrategy interface {
@@ -182,7 +183,7 @@ func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64) (string, error
 }
 
 func (b *BasicStrategy) CancelOrder(ordID string) error {
-	fmt.Println("Cancel order")
+	//fmt.Println("Cancel order")
 	if ordID == "" {
 		err := ErrOrderIdIncorrect{
 			OrdId:   ordID,
@@ -301,10 +302,6 @@ func (b *BasicStrategy) proxyEvent(e event) {
 	}
 }
 
-func (b *BasicStrategy) Wait() {
-	//b.wg.Wait()
-}
-
 //****** EVENT HANDLERS *******************************************************
 
 func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
@@ -411,6 +408,7 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 
 	go func() {
 
+
 		defer func() {
 			b.mdChan <- e
 		}()
@@ -423,13 +421,17 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		}
 
 		for atomic.LoadInt32(&b.waitingN) > 0 {
-			fmt.Println("Waiting... " + b.symbol)
+			//fmt.Println("Waiting... " + b.symbol)
+			runtime.Gosched()
 		}
 
 		b.mut.Lock()
 		defer b.mut.Unlock()
 
-		b.mostRecentTime = e.Tick.Datetime
+		if e.Tick.Datetime.After(b.mostRecentTime){
+			b.mostRecentTime = e.Tick.Datetime
+		}
+
 
 		b.putNewTick(e.Tick)
 		if b.currentTrade.IsOpen() {
@@ -443,7 +445,7 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		}
 
 		b.userStrategy.OnTick(b, e.Tick)
-
+		b.sendEventForLogging(e)
 	}()
 
 }
@@ -500,6 +502,10 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
+
 	if e.Symbol != b.symbol {
 		go b.newError(errors.New("Mismatch symbols in fill event and position. "))
 	}
@@ -526,12 +532,12 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		}
 		b.closedTrades = append(b.closedTrades, b.currentTrade)
 		b.currentTrade = newPos
-		fmt.Println("New trade to portf event")
+		//fmt.Println("New trade to portf event")
 		b.notifyPortfolioAboutPosition(&PortfolioNewPositionEvent{be(e.getTime(), b.symbol), b.currentTrade})
 
 	} else {
 		if prevState == FlatTrade {
-			fmt.Println("New trade to portf event")
+			//fmt.Println("New trade to portf event")
 			b.notifyPortfolioAboutPosition(&PortfolioNewPositionEvent{be(e.getTime(), b.symbol), b.currentTrade})
 		}
 	}
@@ -541,6 +547,10 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
 
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&CAN&"+e.OrdId)
@@ -567,6 +577,10 @@ func (b *BasicStrategy) onOrderCancelRejectHandler(e *OrderCancelRejectEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
+
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&CAN&"+e.OrdId)
 
@@ -576,6 +590,10 @@ func (b *BasicStrategy) onOrderReplaceRejectHandler(e *OrderReplaceRejectEvent) 
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
+
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&REP&"+e.OrdId)
 
@@ -584,6 +602,10 @@ func (b *BasicStrategy) onOrderReplaceRejectHandler(e *OrderReplaceRejectEvent) 
 func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
 
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&NO&"+e.OrdId)
@@ -599,6 +621,9 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
 
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&REP&"+e.OrdId)
@@ -614,6 +639,9 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
+	if e.getTime().After(b.mostRecentTime){
+		b.mostRecentTime = e.getTime()
+	}
 
 	atomic.AddInt32(&b.waitingN, -1)
 	delete(b.waitingConfirmation, "&NO&"+e.OrdId)
@@ -636,7 +664,6 @@ func (b *BasicStrategy) newError(err error) {
 }
 
 func (b *BasicStrategy) newSignal(e event) {
-	fmt.Println("New signal: " + e.String())
 	b.sendEventForLogging(e)
 	b.ch.events <- e
 }
@@ -662,7 +689,7 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 	}
 	ordEvent := NewOrderEvent{
 		LinkedOrder: order,
-		BaseEvent:   be(order.Time, order.Symbol),
+		BaseEvent:   be(b.mostRecentTime, order.Symbol),
 	}
 
 	reqID := "$NO$" + order.Id

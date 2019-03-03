@@ -373,7 +373,8 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 
 	order, ok := t.ConfirmedOrders[id]
 	if !ok {
-		return nil, errors.New("Can't execute order. Id not found in ConfirmedOrders")
+		msg := fmt.Sprintf("Can't execute order. Id not found in ConfirmedOrders. id: %v", id)
+		return nil, errors.New(msg)
 	}
 
 	if math.IsNaN(execPrice) || execPrice == 0 {
@@ -391,8 +392,10 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 		if len(t.FilledOrders) == 0 {
 			t.FilledOrders = make(map[string]*Order)
 		} else {
-			if _, ok := t.FilledOrders[id]; ok {
-				return nil, errors.New("Can't execute order. ID already found in FilledOrders")
+			if o, ok := t.FilledOrders[id]; ok {
+				msg := fmt.Sprintf("%v Can't execute order. ID already found in FilledOrders. Filled Qty:%v, Total Qty:%v,  id %v",
+					datetime, o.ExecQty, o.Qty, id)
+				return nil, errors.New(msg)
 			}
 		}
 
@@ -481,7 +484,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
-					newTrade.FilledOrders = map[string]*Order{id: order}
+					//newTrade.FilledOrders = map[string]*Order{id: order} TODO test with this
 					newTrade.updateAllOrdersIDMap()
 
 					t.NewOrders = make(map[string]*Order)
@@ -549,7 +552,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
-					newTrade.FilledOrders = map[string]*Order{id: order}
+					//newTrade.FilledOrders = map[string]*Order{id: order}
 					newTrade.updateAllOrdersIDMap()
 
 					t.NewOrders = make(map[string]*Order)
