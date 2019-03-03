@@ -78,10 +78,11 @@ type BasicStrategy struct {
 	mut                        *sync.Mutex
 	isEventLoggingEnabled      bool
 	isEventSliceStorageEnabled bool
-	wg *sync.WaitGroup
+	wg                         *sync.WaitGroup
 
 	log         log.Logger
 	eventsSlice eventsSliceStorage
+	mdChan      chan *NewTickEvent
 }
 
 //******* Connection methods ***********************
@@ -300,8 +301,8 @@ func (b *BasicStrategy) proxyEvent(e event) {
 	}
 }
 
-func (b *BasicStrategy) Wait(){
-	b.wg.Wait()
+func (b *BasicStrategy) Wait() {
+	//b.wg.Wait()
 }
 
 //****** EVENT HANDLERS *******************************************************
@@ -404,48 +405,50 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 	return
 }
 
+
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
+	<-b.mdChan
 
+	go func() {
 
-	if e == nil {
-		return
-	}
-	if !b.tickIsValid(e.Tick) {
-		return
-	}
+		defer func() {
+			b.mdChan <- e
+		}()
 
-	for atomic.LoadInt32(&b.waitingN) > 0 {
-		fmt.Println("Waiting... " + b.symbol)
-	}
-
-	b.mut.Lock()
-	defer b.mut.Unlock()
-
-
-	b.sendEventForLogging(e)
-	b.wg = &sync.WaitGroup{}
-	b.wg.Add(1)
-	defer b.wg.Done()
-
-	b.mostRecentTime = e.Tick.Datetime
-
-	b.putNewTick(e.Tick)
-	if b.currentTrade.IsOpen() {
-		err := b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
-		if err != nil {
-			go b.newError(err)
+		if e == nil {
+			return
 		}
-	}
-	if len(b.Ticks) < b.nPeriods {
-		return
-	}
+		if !b.tickIsValid(e.Tick) {
+			return
+		}
 
-	b.userStrategy.OnTick(b, e.Tick)
+		for atomic.LoadInt32(&b.waitingN) > 0 {
+			fmt.Println("Waiting... " + b.symbol)
+		}
 
+		b.mut.Lock()
+		defer b.mut.Unlock()
+
+		b.mostRecentTime = e.Tick.Datetime
+
+		b.putNewTick(e.Tick)
+		if b.currentTrade.IsOpen() {
+			err := b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
+			if err != nil {
+				go b.newError(err)
+			}
+		}
+		if len(b.Ticks) < b.nPeriods {
+			return
+		}
+
+		b.userStrategy.OnTick(b, e.Tick)
+
+	}()
 
 }
 
-func (b *BasicStrategy) markAsReadyAcceptMarketData(){
+func (b *BasicStrategy) markAsReadyAcceptMarketData() {
 	//go func(){
 	//	b.ch.readyAcceptMarketData <- struct{}{}
 	//}()

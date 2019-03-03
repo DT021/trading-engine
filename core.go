@@ -42,6 +42,11 @@ type Engine struct {
 	globalWaitGroup  *sync.WaitGroup
 	histDataTimeBack time.Duration
 	mut              *sync.Mutex
+	waitG            *sync.WaitGroup
+	prevSymbol       string
+	gorotinesCalls   int32
+	doneCallsChan    chan string
+	waitingMap       map[string]struct{}
 }
 
 func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode EngineMode, logEvents bool) *Engine {
@@ -113,6 +118,9 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	eng.terminationChan = make(chan struct{})
 	eng.syncGroupMap = syncGroupMap
 	eng.mut = &sync.Mutex{}
+	eng.waitG = &sync.WaitGroup{}
+	eng.doneCallsChan = make(chan string, 2)
+	eng.waitingMap = make(map[string]struct{})
 
 	return &eng
 }
@@ -174,6 +182,10 @@ func (c *Engine) eTick(e *NewTickEvent) {
 
 }
 
+func (c *Engine) onCallDone(symbol string) {
+	delete(c.waitingMap, symbol)
+}
+
 func (c *Engine) eCandleHistory(e *CandlesHistoryEvent) {
 
 }
@@ -202,7 +214,7 @@ Loop:
 	for {
 		select {
 		case e := <-c.marketDataChan:
-			fmt.Println(e.getName() + " " + e.getSymbol())
+			//fmt.Println(e.getName() + " " + e.getSymbol())
 			msg := fmt.Sprintf("NEW MD || %v || %v", e.getSymbol(), e.getName())
 			c.logMessage(msg)
 			switch i := e.(type) {
@@ -222,6 +234,8 @@ Loop:
 				go c.eEndOfData(i)
 				break Loop
 			}
+		case e := <-c.doneCallsChan:
+			c.onCallDone(e)
 		}
 	}
 

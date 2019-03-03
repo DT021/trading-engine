@@ -106,6 +106,11 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	}
 
 	bs.init(cc)
+	bs.mdChan = make(chan *NewTickEvent)
+	go func(){
+		bs.mdChan <- &NewTickEvent{}
+	}()
+
 	return &bs
 
 }
@@ -221,7 +226,6 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 			case *OrderReplacedEvent:
 				assert.Equal(t, pv.OrdId, v.OrdId)
 				prevEvent = v
-
 
 			}
 		case *OrderCancelRequestEvent:
