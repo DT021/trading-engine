@@ -60,7 +60,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	errChan := make(chan error)
 	strategyDone := make(chan *StrategyFinishedEvent, len(sp))
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
-	events := make(chan event)
+	events := make(chan event, 500)
 
 	portfolio := newPortfolio()
 
@@ -84,9 +84,6 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 			strategyDone:          strategyDone,
 		}
 
-		/*go func() {
-			cc.readyAcceptMarketData <- struct{}{}
-		}()*/
 		sp[k].init(cc)
 		sp[k].setPortfolio(portfolio)
 		if logEvents {
@@ -177,6 +174,8 @@ func (c *Engine) eTick(e *NewTickEvent) {
 	}
 
 	st := c.getSymbolStrategy(e.Tick.Symbol)
+	//fmt.Println(e.getName())
+
 	c.broker.OnEvent(e)
 	st.onTickHandler(e)
 
@@ -248,6 +247,7 @@ LOOP:
 
 		select {
 		case e := <-c.events:
+			//fmt.Println(e.getName())
 			go c.proxyEvent(e)
 		case e := <-c.portfolioChan:
 			c.eUpdatePortfolio(e)

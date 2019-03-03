@@ -5,9 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
+	"sort"
 	"sync"
 	"time"
 )
+
+type eventArray []event
+
+func (t eventArray) sort() eventArray {
+	sort.SliceStable(t, func(i, j int) bool {
+		return t[i].getTime().Unix() < t[j].getTime().Unix()
+	})
+	return t
+}
 
 type IBroker interface {
 	Connect()
@@ -22,6 +33,7 @@ type simBrokerOrder struct {
 	BrokerState   OrderState
 	StateUpdTime  time.Time
 	BrokerExecQty int64
+	BrokerPrice   float64
 }
 
 type SimBroker struct {
@@ -103,6 +115,7 @@ type simBrokerWorker struct {
 	marketCloseUntilTime TimeOfDay
 	mpMutext             *sync.RWMutex
 	orders               map[string]*simBrokerOrder
+	generatedEvents      eventArray
 }
 
 func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
@@ -147,6 +160,7 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 		Order:         e.LinkedOrder,
 		BrokerState:   NewOrder,
 		BrokerExecQty: 0,
+		BrokerPrice:   e.LinkedOrder.Price,
 		StateUpdTime:  confEvent.getTime(),
 	}
 
@@ -324,9 +338,9 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 
 	}
 	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
 
-	if len(b.orders) == 0 {
-		b.mpMutext.Unlock()
+	if len(b.orders) == 0 && len(b.generatedEvents) == 0 {
 		return
 	}
 
@@ -350,7 +364,31 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 		}
 	}
 
-	b.mpMutext.Unlock()
+	if len(b.generatedEvents) == 0 {
+		return
+	}
+
+	b.generatedEvents = b.generatedEvents.sort() // TODO smell
+
+	var eventsLeft eventArray
+	var eventsToSend eventArray
+
+	for _, e := range b.generatedEvents {
+		if !e.getTime().After(tick.Datetime) {
+			//fmt.Printf("Putting %v", e.getName())
+			eventsToSend = append(eventsToSend, e)
+			//fmt.Printf("Done: %v", e.getName())
+		} else {
+			eventsLeft = append(eventsLeft, e)
+		}
+	}
+
+	b.generatedEvents = eventsLeft
+
+	for _, e := range eventsToSend {
+		b.events <- e
+		runtime.Gosched()
+	}
 
 }
 
@@ -460,7 +498,7 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 	var generatedEvents []event
 	switch order.Side {
 	case OrderSell:
-		if tick.LastPrice < order.Price {
+		if tick.LastPrice < order.BrokerPrice {
 			cancelE := OrderCancelEvent{
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
@@ -470,7 +508,7 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 		}
 
 	case OrderBuy:
-		if tick.LastPrice > order.Price {
+		if tick.LastPrice > order.BrokerPrice {
 			cancelE := OrderCancelEvent{
 				OrdId:     order.Id,
 				BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
@@ -490,7 +528,7 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 
 	}
 
-	if tick.LastPrice == order.Price && b.strictLimitOrders {
+	if tick.LastPrice == order.BrokerPrice && b.strictLimitOrders {
 		cancelE := OrderCancelEvent{
 			OrdId:     order.Id,
 			BaseEvent: be(tick.Datetime.Add(time.Duration(b.delay)*time.Millisecond), tick.Symbol),
@@ -598,7 +636,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 	switch order.Side {
 	case OrderSell:
-		if tick.LastPrice > order.Price {
+		if tick.LastPrice > order.BrokerPrice {
 			qty := lvsQty
 			if tick.LastSize < int64(qty) {
 				qty = tick.LastSize
@@ -606,14 +644,14 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 			fillE := OrderFillEvent{
 				OrdId:     order.Id,
-				Price:     order.Price,
+				Price:     order.BrokerPrice,
 				Qty:       qty,
 				BaseEvent: be(b.genEventTime(tick.Datetime), order.Symbol),
 			}
 			return &fillE
 
 		} else {
-			if tick.LastPrice == order.Price && !b.strictLimitOrders {
+			if tick.LastPrice == order.BrokerPrice && !b.strictLimitOrders {
 				qty := lvsQty
 				if tick.LastSize < int64(qty) {
 					qty = tick.LastSize
@@ -621,7 +659,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 				fillE := OrderFillEvent{
 					OrdId:     order.Id,
-					Price:     order.Price,
+					Price:     order.BrokerPrice,
 					Qty:       qty,
 					BaseEvent: be(b.genEventTime(tick.Datetime), order.Symbol),
 				}
@@ -633,7 +671,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 		}
 
 	case OrderBuy:
-		if tick.LastPrice < order.Price {
+		if tick.LastPrice < order.BrokerPrice {
 			qty := lvsQty
 			if tick.LastSize < int64(qty) {
 				qty = tick.LastSize
@@ -641,7 +679,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 			fillE := OrderFillEvent{
 				OrdId:     order.Id,
-				Price:     order.Price,
+				Price:     order.BrokerPrice,
 				Qty:       qty,
 				BaseEvent: be(b.genEventTime(tick.Datetime), order.Symbol),
 			}
@@ -649,7 +687,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 			return &fillE
 
 		} else {
-			if tick.LastPrice == order.Price && !b.strictLimitOrders {
+			if tick.LastPrice == order.BrokerPrice && !b.strictLimitOrders {
 				qty := lvsQty
 				if tick.LastSize < int64(qty) {
 					qty = tick.LastSize
@@ -657,7 +695,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 				fillE := OrderFillEvent{
 					OrdId:     order.Id,
-					Price:     order.Price,
+					Price:     order.BrokerPrice,
 					Qty:       qty,
 					BaseEvent: be(b.genEventTime(tick.Datetime), order.Symbol),
 				}
@@ -675,7 +713,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 }
 
-func (b *simBrokerWorker) genEventTime(baseTime time.Time) time.Time{
+func (b *simBrokerWorker) genEventTime(baseTime time.Time) time.Time {
 	newEvTime := baseTime.Add(time.Duration(b.delay) * time.Millisecond)
 	return newEvTime
 }
@@ -693,7 +731,7 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 
 	switch order.Side {
 	case OrderSell:
-		if tick.LastPrice > order.Price {
+		if tick.LastPrice > order.BrokerPrice {
 			return nil
 		}
 		price := tick.LastPrice
@@ -716,7 +754,7 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 		return &fillE
 
 	case OrderBuy:
-		if tick.LastPrice < order.Price {
+		if tick.LastPrice < order.BrokerPrice {
 			return nil
 		}
 		price := tick.LastPrice
@@ -874,7 +912,7 @@ func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expec
 
 func (b *simBrokerWorker) executeBrokerEvent(e event) {
 
-	needWaitStrategyNotification := false
+	//TODO нет реджектов по канселу и реплейсу
 
 	switch i := e.(type) {
 
@@ -896,13 +934,23 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 		ord.BrokerState = CanceledOrder
 		ord.StateUpdTime = e.getTime()
 
+	case *OrderReplacedEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to replace it. ", i.OrdId)
+			panic(msg)
+		}
+
+		ord.StateUpdTime = e.getTime()
+		ord.BrokerPrice = i.NewPrice
+
 	case *OrderFillEvent:
 		ord, ok := b.orders[i.OrdId]
 		if !ok {
 			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
 			panic(msg)
 		}
-		needWaitStrategyNotification = true
+
 		execQty := i.Qty
 
 		if execQty == ord.Qty-ord.BrokerExecQty {
@@ -928,13 +976,7 @@ func (b *simBrokerWorker) executeBrokerEvent(e event) {
 		ord.StateUpdTime = e.getTime()
 
 	}
-	if needWaitStrategyNotification {
-		b.events <- e
-	} else {
-		go func() {
-			b.events <- e
-		}()
-	}
+	b.generatedEvents = append(b.generatedEvents, e)
 
 }
 

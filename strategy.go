@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"path"
-	"runtime"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -84,6 +83,7 @@ type BasicStrategy struct {
 	log         log.Logger
 	eventsSlice eventsSliceStorage
 	mdChan      chan *NewTickEvent
+	prevTick    *marketdata.Tick
 }
 
 //******* Connection methods ***********************
@@ -402,12 +402,10 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 	return
 }
 
-
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	<-b.mdChan
 
 	go func() {
-
 
 		defer func() {
 			b.mdChan <- e
@@ -420,18 +418,28 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 			return
 		}
 
-		for atomic.LoadInt32(&b.waitingN) > 0 {
-			//fmt.Println("Waiting... " + b.symbol)
-			runtime.Gosched()
+
+
+		if b.prevTick != nil {
+
+			/*if e.Tick.Datetime.Sub(b.prevTick.Datetime) > time.Duration(1*time.Second) {
+				for atomic.LoadInt32(&b.waitingN) > 0 {
+					//runtime.Gosched()
+
+				}
+			}*/
 		}
+
+
 
 		b.mut.Lock()
 		defer b.mut.Unlock()
 
-		if e.Tick.Datetime.After(b.mostRecentTime){
+
+
+		if e.Tick.Datetime.After(b.mostRecentTime) {
 			b.mostRecentTime = e.Tick.Datetime
 		}
-
 
 		b.putNewTick(e.Tick)
 		if b.currentTrade.IsOpen() {
@@ -441,11 +449,14 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 			}
 		}
 		if len(b.Ticks) < b.nPeriods {
+			b.prevTick = e.Tick
 			return
+
 		}
 
 		b.userStrategy.OnTick(b, e.Tick)
 		b.sendEventForLogging(e)
+		b.prevTick = e.Tick
 	}()
 
 }
@@ -502,7 +513,7 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -548,7 +559,7 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -577,7 +588,7 @@ func (b *BasicStrategy) onOrderCancelRejectHandler(e *OrderCancelRejectEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -590,7 +601,7 @@ func (b *BasicStrategy) onOrderReplaceRejectHandler(e *OrderReplaceRejectEvent) 
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -603,7 +614,7 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
 
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -621,7 +632,7 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 
@@ -639,7 +650,7 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 	b.mut.Lock()
 	defer b.mut.Unlock()
-	if e.getTime().After(b.mostRecentTime){
+	if e.getTime().After(b.mostRecentTime) {
 		b.mostRecentTime = e.getTime()
 	}
 

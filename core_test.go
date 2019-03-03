@@ -255,8 +255,10 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
 				switch prevEvent.(type) {
 				case *OrderConfirmationEvent:
+				case *OrderFillEvent:
+
 				default:
-					t.Errorf("Exprected confirmation event before replace. found: %+v", prevEvent)
+					t.Errorf("Exprected confirmation or fill event before replace. found: %+v", prevEvent)
 				}
 				assert.True(t, v.getTime().After(prevEvent.getTime()),
 					"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
@@ -290,7 +292,7 @@ func engineTest(t *testing.T, md *BTM, txtLogs bool) {
 		}
 
 		broker := newTestSimBroker()
-		broker.delay = 200
+		broker.delay = 8000
 
 		strategyMap := make(map[string]ICoreStrategy)
 		eventWritesMap := make(map[string]*eventsSliceStorage)
