@@ -20,11 +20,9 @@ const (
 )
 
 type CoreStrategyChannels struct {
-	errors                chan error
-	readyAcceptMarketData chan struct{}
-	events                chan event
-	portfolio             chan *PortfolioNewPositionEvent
-	strategyDone          chan *StrategyFinishedEvent
+	errors    chan error
+	events    chan event
+	portfolio chan *PortfolioNewPositionEvent
 }
 
 func (c *CoreStrategyChannels) isValid() bool {
@@ -41,14 +39,13 @@ func (c *CoreStrategyChannels) isValid() bool {
 }
 
 type ICoreStrategy interface {
+	init(ch CoreStrategyChannels)
 	ticks() marketdata.TickArray
 	candles() marketdata.CandleArray
-	init(ch CoreStrategyChannels)
 	setPortfolio(p *portfolioHandler)
 	enableEventLogging()
-	OnEvent(e event)
-	readyForMD()
-	onTickHandler(e *NewTickEvent)
+	notify(e event)
+	shutDown()
 }
 
 type IUserStrategy interface {
@@ -58,11 +55,11 @@ type IUserStrategy interface {
 }
 
 type BasicStrategy struct {
-	portfolio                  *portfolioHandler
-	isReady                    bool
-	symbol                     string
-	nPeriods                   int
-	lastSeenTickTime           time.Time
+	portfolio *portfolioHandler
+	isReady   bool
+	symbol    string
+	nPeriods  int
+
 	ch                         CoreStrategyChannels
 	terminationChan            chan struct{}
 	waitingConfirmation        map[string]struct{}
@@ -78,18 +75,18 @@ type BasicStrategy struct {
 	mut                        *sync.Mutex
 	isEventLoggingEnabled      bool
 	isEventSliceStorageEnabled bool
-	wg                         *sync.WaitGroup
 
-	log         log.Logger
-	eventsSlice eventsSliceStorage
-	mdChan      chan *NewTickEvent
-	prevTick    *marketdata.Tick
+	log                log.Logger
+	eventsLoggingSlice eventsSliceStorage
+	mdChan             chan *NewTickEvent
+	handlersWaitGroup  *sync.WaitGroup
 }
 
 //******* Connection methods ***********************
 
-func (b *BasicStrategy) readyForMD() {
-	<-b.ch.readyAcceptMarketData
+func (b *BasicStrategy) shutDown() {
+	b.handlersWaitGroup.Wait()
+
 }
 func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	if !ch.isValid() {
@@ -109,7 +106,6 @@ func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	}
 
 	b.isReady = true
-	b.wg = &sync.WaitGroup{}
 
 }
 
@@ -156,7 +152,7 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) 
 		Price:  price,
 		State:  NewOrder,
 		Type:   LimitOrder,
-		Time:   b.mostRecentTime,
+		Time:   b.mostRecentTime.Add(20 * time.Microsecond),
 		Id:     fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
 	}
 
@@ -206,7 +202,7 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 
 	cancelReq := OrderCancelRequestEvent{
 		OrdId:     ordID,
-		BaseEvent: be(b.mostRecentTime, b.currentTrade.ConfirmedOrders[ordID].Symbol),
+		BaseEvent: be(b.mostRecentTime.Add(20*time.Microsecond), b.currentTrade.ConfirmedOrders[ordID].Symbol),
 	}
 
 	reqID := "$CAN$" + ordID
@@ -246,7 +242,7 @@ func (b *BasicStrategy) ReplaceOrder(ordID string, newPrice float64) error {
 	replaceReq := OrderReplaceRequestEvent{
 		OrdId:     ordID,
 		NewPrice:  newPrice,
-		BaseEvent: be(b.mostRecentTime, b.symbol),
+		BaseEvent: be(b.mostRecentTime.Add(20*time.Microsecond), b.symbol),
 	}
 
 	reqID := "$REP$" + ordID
@@ -268,9 +264,16 @@ func (b *BasicStrategy) LastCandleOpen() float64 {
 
 //****** MARKET DATA AND EVENT PROCESSORS ******************************************
 
-func (b *BasicStrategy) OnEvent(e event) {
-	b.sendEventForLogging(e)
-	b.proxyEvent(e)
+func (b *BasicStrategy) notify(e event) {
+	switch e.(type) {
+	case *NewTickEvent:
+		b.proxyEvent(e)
+	default:
+		b.sendEventForLogging(e)
+		b.proxyEvent(e)
+	}
+
+
 }
 
 func (b *BasicStrategy) proxyEvent(e event) {
@@ -321,7 +324,7 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 	if b.currentTrade.IsOpen() {
 		err := b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
 		if err != nil {
-			go b.newError(err)
+			b.newError(err)
 		}
 	}
 	if len(b.Candles) < b.nPeriods {
@@ -348,7 +351,7 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 	if b.currentTrade.IsOpen() {
 		err := b.currentTrade.updatePnL(e.Price, e.CandleTime)
 		if err != nil {
-			go b.newError(err)
+			b.newError(err)
 		}
 	}
 
@@ -404,11 +407,13 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 
 func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	<-b.mdChan
-
+	b.handlersWaitGroup.Add(1)
 	go func() {
 
 		defer func() {
+			b.handlersWaitGroup.Done()
 			b.mdChan <- e
+
 		}()
 
 		if e == nil {
@@ -418,24 +423,15 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 			return
 		}
 
-
-
-		if b.prevTick != nil {
-
-			/*if e.Tick.Datetime.Sub(b.prevTick.Datetime) > time.Duration(1*time.Second) {
+		/*if e.Tick.Datetime.Sub(b.prevTick.Datetime) > time.Duration(1*time.Second) {
 				for atomic.LoadInt32(&b.waitingN) > 0 {
 					//runtime.Gosched()
 
 				}
-			}*/
-		}
-
-
+			} todo*/
 
 		b.mut.Lock()
 		defer b.mut.Unlock()
-
-
 
 		if e.Tick.Datetime.After(b.mostRecentTime) {
 			b.mostRecentTime = e.Tick.Datetime
@@ -445,27 +441,20 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		if b.currentTrade.IsOpen() {
 			err := b.currentTrade.updatePnL(e.Tick.LastPrice, e.Tick.Datetime)
 			if err != nil {
-				go b.newError(err)
+				b.newError(err)
 			}
 		}
 		if len(b.Ticks) < b.nPeriods {
-			b.prevTick = e.Tick
 			return
-
 		}
 
 		b.userStrategy.OnTick(b, e.Tick)
 		b.sendEventForLogging(e)
-		b.prevTick = e.Tick
 	}()
 
 }
 
-func (b *BasicStrategy) markAsReadyAcceptMarketData() {
-	//go func(){
-	//	b.ch.readyAcceptMarketData <- struct{}{}
-	//}()
-}
+
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
 func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) {
@@ -518,27 +507,27 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 	}
 
 	if e.Symbol != b.symbol {
-		go b.newError(errors.New("Mismatch symbols in fill event and position. "))
+		b.newError(errors.New("Mismatch symbols in fill event and position. "))
 	}
 
 	if e.Qty <= 0 {
-		go b.newError(errors.New("Execution Qty is zero or less. "))
+		b.newError(errors.New("Execution Qty is zero or less. "))
 	}
 
 	if math.IsNaN(e.Price) || e.Price <= 0 {
-		go b.newError(errors.New("Price is NaN or less or equal to zero. "))
+		b.newError(errors.New("Price is NaN or less or equal to zero. "))
 	}
 
 	prevState := b.currentTrade.Type
 	newPos, err := b.currentTrade.executeOrder(e.OrdId, e.Qty, e.Price, e.Time)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 		return
 	}
 	if newPos != nil {
 		if b.currentTrade.Type != ClosedTrade {
-			go b.newError(errors.New("New position opened, but previous is not closed. "))
+			b.newError(errors.New("New position opened, but previous is not closed. "))
 			return
 		}
 		b.closedTrades = append(b.closedTrades, b.currentTrade)
@@ -569,7 +558,7 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 	err := b.currentTrade.cancelOrder(e.OrdId)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 		return
 	}
 
@@ -577,7 +566,7 @@ func (b *BasicStrategy) onOrderCancelHandler(e *OrderCancelEvent) {
 
 func (b *BasicStrategy) onStrategyRequestNotDeliveredEventHandler(e *StrategyRequestNotDeliveredEvent) {
 	if e.Request == nil {
-		go b.newError(errors.New("onStrategyRequestNotDeliveredEventHandler got event with nil Request field"))
+		b.newError(errors.New("onStrategyRequestNotDeliveredEventHandler got event with nil Request field"))
 		return
 	}
 
@@ -624,7 +613,7 @@ func (b *BasicStrategy) onOrderConfirmHandler(e *OrderConfirmationEvent) {
 	err := b.currentTrade.confirmOrder(e.OrdId)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 		return
 	}
 }
@@ -642,7 +631,7 @@ func (b *BasicStrategy) onOrderReplacedHandler(e *OrderReplacedEvent) {
 	err := b.currentTrade.replaceOrder(e.OrdId, e.NewPrice)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 	}
 
 }
@@ -660,7 +649,7 @@ func (b *BasicStrategy) onOrderRejectedHandler(e *OrderRejectedEvent) {
 	err := b.currentTrade.rejectOrder(e.OrdId, e.Reason)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 		return
 	}
 }
@@ -671,7 +660,12 @@ func (b *BasicStrategy) onEndOfDataHandler(e *EndOfDataEvent) {
 
 //Private funcs to work with data
 func (b *BasicStrategy) newError(err error) {
-	b.ch.errors <- err
+	b.handlersWaitGroup.Add(1)
+	go func(){
+		b.ch.errors <- err
+		b.handlersWaitGroup.Done()
+	}()
+
 }
 
 func (b *BasicStrategy) newSignal(e event) {
@@ -695,7 +689,7 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 	err := b.currentTrade.putNewOrder(order)
 
 	if err != nil {
-		go b.newError(err)
+		b.newError(err)
 		return err
 	}
 	ordEvent := NewOrderEvent{
@@ -715,8 +709,10 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 }
 
 func (b *BasicStrategy) notifyPortfolioAboutPosition(e *PortfolioNewPositionEvent) {
+	b.handlersWaitGroup.Add(1)
 	go func() {
 		b.ch.portfolio <- e
+		b.handlersWaitGroup.Done()
 	}()
 }
 
@@ -732,7 +728,7 @@ func (b *BasicStrategy) enableEventLogging() {
 
 func (b *BasicStrategy) enableEventSliceStorage() {
 	b.isEventSliceStorageEnabled = true
-	b.eventsSlice = eventsSliceStorage{mut: &sync.Mutex{}}
+	b.eventsLoggingSlice = eventsSliceStorage{mut: &sync.Mutex{}}
 }
 
 func (b *BasicStrategy) sendEventForLogging(e event) {
@@ -741,7 +737,7 @@ func (b *BasicStrategy) sendEventForLogging(e event) {
 		b.log.Print(message)
 	}
 	if b.isEventSliceStorageEnabled {
-		b.eventsSlice.add(e)
+		b.eventsLoggingSlice.add(e)
 	}
 }
 

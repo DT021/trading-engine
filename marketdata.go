@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type IMarketData interface {
 	SetSymbols(symbols []string)
 	RequestHistoricalData(duration time.Duration)
 	GetFirstTime() time.Time
+	ShutDown()
 }
 
 type BTM struct {
@@ -36,6 +38,11 @@ type BTM struct {
 	mdChan           chan event
 	Storage          marketdata.Storage
 	histDataTimeBack time.Duration
+	waitGroup        *sync.WaitGroup
+}
+
+func (m *BTM) ShutDown() {
+	m.waitGroup.Wait()
 }
 
 func (m *BTM) SetSymbols(symbols []string) {
@@ -136,7 +143,7 @@ func (m *BTM) loadDate(date time.Time) {
 		}
 		symbolTicks, err := m.Storage.GetStoredTicks(symbol, rng, m.LoadQuotes, m.LoadTicks)
 		if err != nil && symbolTicks != nil {
-			go m.newError(err)
+			m.newError(err)
 			continue
 		}
 
@@ -165,13 +172,18 @@ func (m *BTM) writeDateTicks(ticks marketdata.TickArray) {
 			continue
 		}
 		if _, err := f.Write([]byte(t.String() + "\n")); err != nil {
-			go m.newError(err)
+			m.newError(err)
 		}
 	}
 }
 
 func (m *BTM) newError(err error) {
-	m.errChan <- err
+	m.waitGroup.Add(1)
+	go func() {
+		m.errChan <- err
+		m.waitGroup.Done()
+	}()
+
 }
 
 func (m *BTM) newEvent(e event) {
@@ -200,9 +212,18 @@ func (m *BTM) Run() {
 		m.prepare()
 	}
 	if m.histDataTimeBack > time.Second {
-		go m.genTickEventsWithHistory()
+		m.waitGroup.Add(1)
+		go func(){
+			m.genTickEventsWithHistory()
+			m.waitGroup.Done()
+		}()
+
 	} else {
-		go m.genTickEvents()
+		m.waitGroup.Add(1)
+		go func(){
+			m.genTickEvents()
+			m.waitGroup.Done()
+		}()
 	}
 
 }
@@ -277,8 +298,6 @@ func (m *BTM) genTickEventsWithHistory() {
 				BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
 			}
 			m.newEvent(&e)
-			//time.Sleep(time.Millisecond*2)
-
 			continue
 		}
 

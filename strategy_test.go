@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+
+
 //We use some dummy userStrategy for tests
 type DummyStrategy struct {
 }
@@ -33,10 +35,8 @@ func newTestBasicStrategy() *BasicStrategy {
 
 	cc := CoreStrategyChannels{
 		errors:                make(chan error),
-		readyAcceptMarketData: make(chan struct{}),
 		events:                make(chan event),
 		portfolio:             portfolioChan,
-		strategyDone:          make(chan *StrategyFinishedEvent),
 	}
 
 	bs.init(cc)

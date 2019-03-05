@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,18 +96,17 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 		userStrategy: &st}
 
 	errChan := make(chan error)
-	strategyDone := make(chan *StrategyFinishedEvent, 1)
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
 	cc := CoreStrategyChannels{
 		errors:                errChan,
-		readyAcceptMarketData: make(chan struct{}),
 		events:                make(chan event),
 		portfolio:             portfolioChan,
-		strategyDone:          strategyDone,
+
 	}
 
 	bs.init(cc)
 	bs.mdChan = make(chan *NewTickEvent, 2)
+	bs.handlersWaitGroup = &sync.WaitGroup{}
 	go func() {
 		bs.mdChan <- &NewTickEvent{}
 		//bs.mdChan <- &NewTickEvent{}
@@ -129,9 +129,6 @@ func newTestLargeBTM(folder string) *BTM {
 		}
 	}
 
-	//testSymbols := []string{
-	//	"ATRA",
-	//}
 
 	//testSymbols = testSymbols[:10]
 
@@ -146,6 +143,7 @@ func newTestLargeBTM(folder string) *BTM {
 		FromDate:   fromDate,
 		ToDate:     toDate,
 		Storage:    &storage,
+		waitGroup: &sync.WaitGroup{},
 	}
 
 	err = createDirIfNotExists(b.Folder)
@@ -187,11 +185,10 @@ func findErrorsInLog() []string {
 
 }
 
-func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
+func assertStrategyOrderFlowIsCorrect(t *testing.T, genEvents []event) {
 	prevEventMap := make(map[string]event)
 	var prevMarketData event
 
-	//assert.True(t, len(genEvents) > 0)
 	for _, e := range genEvents {
 		switch v := e.(type) {
 		case *NewTickEvent:
@@ -240,11 +237,15 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
 				switch prevEvent.(type) {
 				case *OrderConfirmationEvent:
+					assert.True(t, v.getTime().After(prevEvent.getTime()),
+						"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
+				case *OrderFillEvent:
+					assert.False(t, v.getTime().Before(prevEvent.getTime()),
+						"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
 				default:
 					t.Errorf("Exprected confirmation event before cancel. found: %+v", prevEvent)
 				}
-				assert.True(t, v.getTime().After(prevEvent.getTime()),
-					"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
+
 			} else {
 				t.Errorf("Expected OrderConfirmationEvent before Cancel event. Nothing found. %+v", e)
 			}
@@ -255,15 +256,82 @@ func assertStrategyWorksCorrect(t *testing.T, genEvents []event) {
 			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
 				switch prevEvent.(type) {
 				case *OrderConfirmationEvent:
+					assert.True(t, v.getTime().After(prevEvent.getTime()),
+						"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
 				case *OrderFillEvent:
-
+					assert.True(t, v.getTime().After(prevEvent.getTime()),
+						"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
 				default:
 					t.Errorf("Exprected confirmation or fill event before replace. found: %+v", prevEvent)
 				}
-				assert.True(t, v.getTime().After(prevEvent.getTime()),
-					"PreEvent Time %v, Curr event time %v", prevEvent.getTime(), v.getTime())
+
 			} else {
 				t.Errorf("Expected OrderConfirmationEvent before Replace event. Nothing found. %+v", e)
+			}
+
+			prevEventMap[v.OrdId] = e
+
+		}
+	}
+}
+
+func assertStrategyBrokerEventsFlowIsCorrect(t *testing.T, genEvents []event) {
+	prevEventMap := make(map[string]event)
+
+	//assert.True(t, len(genEvents) > 0)
+	for _, e := range genEvents {
+		switch v := e.(type) {
+		case *NewOrderEvent:
+			if prevEvent, ok := prevEventMap[v.LinkedOrder.Id]; ok {
+				t.Errorf("Already has event in map before NewOrderEvent: %+v", prevEvent)
+			}
+			prevEventMap[v.LinkedOrder.Id] = e
+		case *OrderConfirmationEvent:
+			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
+				assert.IsType(t, &NewOrderEvent{}, prevEvent)
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+
+			} else {
+				assert.True(t, v.getTime().Before(prevEvent.getTime()))
+				t.Errorf("Expected NewOrderEvent before Confirmation event. Nothing found. %+v", e)
+			}
+			prevEventMap[v.OrdId] = e
+		case *OrderCancelRequestEvent:
+			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
+				assert.IsType(t, &OrderConfirmationEvent{}, prevEvent)
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+			} else {
+				assert.True(t, v.getTime().Before(prevEvent.getTime()))
+				t.Errorf("Expected NewOrderEvent before Confirmation event. Nothing found. %+v", e)
+			}
+			prevEventMap[v.OrdId] = e
+		case *OrderCancelEvent:
+			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
+				assert.IsType(t, &OrderCancelRequestEvent{}, prevEvent)
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+			} else {
+				assert.True(t, v.getTime().Before(prevEvent.getTime()))
+				t.Errorf("Expected NewOrderEvent before Confirmation event. Nothing found. %+v", e)
+			}
+			prevEventMap[v.OrdId] = e
+
+		case *OrderReplaceRequestEvent:
+			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
+				assert.IsType(t, &OrderConfirmationEvent{}, prevEvent)
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+			} else {
+				assert.True(t, v.getTime().Before(prevEvent.getTime()))
+				t.Errorf("Expected NewOrderEvent before Confirmation event. Nothing found. %+v", e)
+			}
+			prevEventMap[v.OrdId] = e
+
+		case *OrderReplacedEvent:
+			if prevEvent, ok := prevEventMap[v.OrdId]; ok {
+				assert.IsType(t, &OrderReplaceRequestEvent{}, prevEvent)
+				assert.True(t, v.getTime().After(prevEvent.getTime()))
+			} else {
+				assert.True(t, v.getTime().Before(prevEvent.getTime()))
+				t.Errorf("Expected NewOrderEvent before Confirmation event. Nothing found. %+v", e)
 			}
 
 			prevEventMap[v.OrdId] = e
@@ -300,7 +368,7 @@ func engineTest(t *testing.T, md *BTM, txtLogs bool) {
 		for _, s := range md.Symbols {
 			st := newTestStrategyWithLogic(s)
 			st.enableEventSliceStorage()
-			eventWritesMap[s] = &st.eventsSlice
+			eventWritesMap[s] = &st.eventsLoggingSlice
 			strategyMap[s] = st
 
 		}
@@ -313,11 +381,12 @@ func engineTest(t *testing.T, md *BTM, txtLogs bool) {
 		t.Logf("Engine #%v finished!", count)
 		for _, st := range eventWritesMap {
 			//t.Logf("Checking %v strategy", k)
-			assertStrategyWorksCorrect(t, st.storedEvents())
+			assertStrategyOrderFlowIsCorrect(t, st.storedEvents())
+			assertStrategyBrokerEventsFlowIsCorrect(t, st.storedEvents())
 		}
 
-		/*errors := findErrorsInLog()
-		assert.Len(t, errors, 0)*/
+		errors := findErrorsInLog()
+		assert.Len(t, errors, 0)
 
 		for _, st := range strategyMap {
 			assert.True(t, isStrategyTicksSorted(st))

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -67,6 +68,7 @@ func newTestBTM() *BTM {
 		FromDate:   fromDate,
 		ToDate:     toDate,
 		Storage:    &storage,
+		waitGroup: &sync.WaitGroup{},
 	}
 
 	err := createDirIfNotExists(b.Folder)
