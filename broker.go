@@ -12,11 +12,10 @@ import (
 
 type eventArray []event
 
-func (t eventArray) sort() eventArray {
+func (t eventArray) sort() {
 	sort.SliceStable(t, func(i, j int) bool {
 		return t[i].getTime().Unix() < t[j].getTime().Unix()
 	})
-	return t
 }
 
 type IBroker interface {
@@ -371,7 +370,7 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 		return
 	}
 
-	b.generatedEvents = b.generatedEvents.sort() // TODO smell
+	b.generatedEvents.sort()
 
 	var eventsLeft eventArray
 	var eventsToSend eventArray

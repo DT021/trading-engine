@@ -1,5 +1,12 @@
 package engine
 
+import (
+	"github.com/stretchr/testify/assert"
+	"math/rand"
+	"testing"
+	"time"
+)
+
 func newTestSimBroker() *SimBroker {
 	b := SimBroker{delay: 1000}
 	b.checkExecutionsOnTicks = true
@@ -7,6 +14,37 @@ func newTestSimBroker() *SimBroker {
 	events := make(chan event)
 	b.Init(errChan, events, []string{""})
 	return &b
+}
+
+func TestEventArray_Sort(t *testing.T) {
+	var events eventArray
+	i := 0
+	for i < 20 {
+		e := NewTickEvent{BaseEvent: be(time.Now().Add(time.Duration(rand.Int())*time.Second), "TestSymbol")}
+		events = append(events, &e)
+		i ++
+	}
+	sorted := true
+
+	for i, e := range events {
+		if i == 0 {
+			continue
+		}
+		if e.getTime().Before(events[i-1].getTime()){
+			sorted = false
+		}
+
+	}
+
+	assert.False(t, sorted)
+	events.sort()
+	for i, e := range events {
+		if i == 0 {
+			continue
+		}
+
+		assert.False(t, e.getTime().Before(events[i-1].getTime()))
+	}
 }
 
 /*
