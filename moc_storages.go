@@ -48,7 +48,7 @@ func (s *mockStorageJSON) GetStoredTicks(symbol string, dRange marketdata.DateRa
 
 }
 
-func (s *mockStorageJSON) GetStoredCandles(symbol string, tf string, dRange marketdata.DateRange) (*marketdata.CandleArray, error) {
+func (s *mockStorageJSON) GetStoredCandles(symbol string, tf string, dRange marketdata.DateRange) (marketdata.CandleArray, error) {
 	return nil, errors.New("Not implemented method for mockStorageJSON")
 }
 

@@ -63,8 +63,7 @@ func newTestBTM() *BTM {
 	b := BTM{
 		Symbols:    testSymbols,
 		Folder:     "./test_data/BTM",
-		LoadQuotes: true,
-		LoadTicks:  true,
+		mode: MarketDataModeTicksQuotes,
 		FromDate:   fromDate,
 		ToDate:     toDate,
 		Storage:    &storage,

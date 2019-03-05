@@ -3,6 +3,7 @@ package engine
 import (
 	"alex/marketdata"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type BaseEvent struct {
 	Symbol string
 }
 
-func (c *BaseEvent) getSymbol() string{
+func (c *BaseEvent) getSymbol() string {
 	return c.Symbol
 }
 
@@ -41,8 +42,9 @@ func be(datetime time.Time, symbol string) BaseEvent {
 
 type CandleOpenEvent struct {
 	BaseEvent
-	Price      float64
-	CandleTime time.Time
+	CandleTime      time.Time
+	Price           float64
+	CandleTimeFrame string
 }
 
 func (c *CandleOpenEvent) getName() string {
@@ -55,7 +57,33 @@ func (c *CandleOpenEvent) String() string {
 
 type CandleCloseEvent struct {
 	BaseEvent
-	Candle *marketdata.Candle
+	Candle    *marketdata.Candle
+	TimeFrame string
+}
+
+func (e *CandleCloseEvent) setEventTimeFromCandle() {
+	if e.Candle == nil {
+		panic("Can't get Event time from Nil candle")
+	}
+	switch e.TimeFrame {
+	case "D":
+		closeTime := e.Candle.Datetime
+		closeTime = time.Date(closeTime.Year(), closeTime.Month(), closeTime.Day(), 23, 59, 59, 0,
+			time.UTC)
+		e.BaseEvent.Time = closeTime
+	case "W":
+		closeTime := e.Candle.Datetime.AddDate(0, 0, 7)
+		closeTime = time.Date(closeTime.Year(), closeTime.Month(), closeTime.Day(), 23, 59, 59, 0,
+			time.UTC)
+		e.BaseEvent.Time = closeTime
+	default:
+		minutes, err := strconv.ParseInt(e.TimeFrame, 10, 8)
+		if err != nil {
+			panic("Unknown timeframe: " + e.TimeFrame)
+		}
+		closeTime := e.Candle.Datetime.Add(time.Duration(minutes) * time.Minute)
+		e.BaseEvent.Time = closeTime
+	}
 }
 
 func (c *CandleCloseEvent) getName() string {
