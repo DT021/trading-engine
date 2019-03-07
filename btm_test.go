@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/stretchr/testify/assert"
+	"io/ioutil"
 	"os"
 	"strconv"
 	"strings"
@@ -12,6 +13,13 @@ import (
 	"testing"
 	"time"
 )
+
+func TestMockStorageJSON_GetStoredCandles(t *testing.T) {
+	storage := mockStorageJSON{folder: "D:\\MarketData\\json_storage\\candles\\day"}
+	candles, err := storage.GetStoredCandles("SPB", "D", marketdata.DateRange{})
+	assert.Nil(t, err)
+	assert.True(t, len(candles) > 0)
+}
 
 func TestBTM_getFilename(t *testing.T) {
 	m := BTM{}
@@ -46,8 +54,7 @@ func TestBTM_getFilename(t *testing.T) {
 
 }
 
-
-func newTestBTM() *BTM {
+func newTestBTMforTicks() *BTM {
 	testSymbols := []string{
 		"Sym1",
 		"Sym2",
@@ -61,16 +68,54 @@ func newTestBTM() *BTM {
 	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
 	storage := mockStorageJSON{folder: "./test_data/json_storage/ticks/quotes_trades"}
 	b := BTM{
-		Symbols:    testSymbols,
-		Folder:     "./test_data/BTM",
-		mode: MarketDataModeTicksQuotes,
-		FromDate:   fromDate,
-		ToDate:     toDate,
-		Storage:    &storage,
+		Symbols:   testSymbols,
+		Folder:    "./test_data/BTM",
+		mode:      MarketDataModeTicksQuotes,
+		FromDate:  fromDate,
+		ToDate:    toDate,
+		Storage:   &storage,
 		waitGroup: &sync.WaitGroup{},
 	}
 
 	err := createDirIfNotExists(b.Folder)
+	if err != nil {
+		panic(err)
+	}
+
+	errChan := make(chan error)
+	eventChan := make(chan event)
+
+	b.Init(errChan, eventChan)
+
+	return &b
+}
+
+func newTestBTMforCandles() *BTM {
+	folder := "./test_data/json_storage/candles"
+	files, err := ioutil.ReadDir(folder)
+	if err != nil {
+		panic(err)
+	}
+
+	var testSymbols []string
+	for _, f := range files {
+		testSymbols = append(testSymbols, strings.Split(f.Name(), ".")[0])
+	}
+	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)
+	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
+	storage := mockStorageJSON{folder: folder}
+	b := BTM{
+		Symbols:          testSymbols,
+		Folder:           "./test_data/BTM",
+		mode:             MarketDataModeCandles,
+		FromDate:         fromDate,
+		ToDate:           toDate,
+		Storage:          &storage,
+		waitGroup:        &sync.WaitGroup{},
+		candlesTimeFrame: "D",
+	}
+
+	err = createDirIfNotExists(b.Folder)
 	if err != nil {
 		panic(err)
 	}
@@ -103,7 +148,7 @@ func prepairedDataIsSorted(pth string, t *testing.T) bool {
 	}
 	defer func() {
 		err := file.Close()
-		if err!=nil{
+		if err != nil {
 			t.Error(err)
 		}
 
@@ -134,7 +179,7 @@ func prepairedDataIsSorted(pth string, t *testing.T) bool {
 func TestBTM_prepare(t *testing.T) {
 	startTime := time.Now()
 
-	b := newTestBTM()
+	b := newTestBTMforTicks()
 	err := os.Remove(b.getPrepairedFilePath())
 	if err != nil {
 		t.Error(err)
@@ -157,9 +202,8 @@ func TestBTM_prepare(t *testing.T) {
 
 }
 
-
-func TestBTM_Run(t *testing.T) {
-	b := newTestBTM()
+func TestBTM_RunTicks(t *testing.T) {
+	b := newTestBTMforTicks()
 
 	err := os.Remove(b.getPrepairedFilePath())
 	if err != nil {
@@ -176,7 +220,7 @@ func TestBTM_Run(t *testing.T) {
 		for {
 			select {
 			case e := <-b.mdChan:
-				switch i := e.(type){
+				switch i := e.(type) {
 				case *NewTickEvent:
 					totalE++
 					prevTime = i.getTime()
@@ -236,9 +280,106 @@ func TestBTM_Run(t *testing.T) {
 			}
 		}
 
-		assert.True(t, tickEventsN>0)
-		assert.True(t, histEventsN>0)
+		assert.True(t, tickEventsN > 0)
+		assert.True(t, histEventsN > 0)
 		assert.Equal(t, 1147, totalTicks)
 	}
+
+}
+
+func TestBTM_RunCandles(t *testing.T) {
+	b := newTestBTMforCandles()
+
+	err := os.Remove(b.getPrepairedFilePath())
+	if err != nil {
+		t.Error(err)
+	}
+
+	t.Log("Test without history events")
+	{
+		b.Run()
+		//time.Sleep(10 * time.Millisecond)
+		//totalE := 0
+		//var prevTime time.Time
+		symbolEventMap := make(map[string]event)
+
+	LOOP:
+		for {
+			select {
+			case e := <-b.mdChan:
+				switch i := e.(type) {
+				case *CandleOpenEvent:
+					if _, ok := symbolEventMap[i.Symbol]; ok {
+						assert.IsType(t, &CandleCloseEvent{}, symbolEventMap[i.Symbol])
+						assert.False(t, i.getTime().Before(symbolEventMap[i.Symbol].getTime()))
+					}
+					symbolEventMap[i.Symbol] = e
+				case *CandleCloseEvent:
+					pe, ok := symbolEventMap[i.Symbol]
+					assert.True(t, ok)
+					assert.IsType(t, &CandleOpenEvent{}, pe)
+					assert.True(t, i.getTime().After(pe.getTime()),
+						"Prev event time %v, event: %+v, Curr event time %v, event: %+v",
+						pe.getTime(), pe, i.getTime(), i)
+					symbolEventMap[i.Symbol] = e
+				case *EndOfDataEvent:
+					break LOOP
+				default:
+					t.Errorf("Unexpected event type: %+v", i)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("Not found enough ticks")
+
+			}
+		}
+		//assert.Equal(t, 1147, totalE)
+	}
+
+	/*t.Log("Test with history requests")
+	{
+		b.RequestHistoricalData(2 * time.Second)
+		b.Run()
+		histResponses := make(map[string]marketdata.TickArray)
+		tickEventsN := 0
+		histEventsN := 0
+		totalTicks := 0
+	HIST_LOOP:
+		for {
+			select {
+			case e := <-b.mdChan:
+				switch i := e.(type) {
+				case *NewTickEvent:
+					tickEventsN ++
+					totalTicks ++
+					if hist, ok := histResponses[i.Symbol]; ok {
+						assert.False(t, i.Tick.Datetime.Before(hist[len(hist)-1].Datetime))
+					} else {
+						t.Errorf("Got NewTickEvent without history response for %v", i.Symbol)
+					}
+				case *TickHistoryEvent:
+					histEventsN ++
+					_, ok := histResponses[i.Symbol]
+					assert.False(t, ok)
+					histResponses[i.Symbol] = i.Ticks
+					totalTicks += len(i.Ticks)
+					for n, tick := range i.Ticks {
+						assert.Equal(t, tick.Symbol, i.Symbol)
+						if n == 0 {
+							continue
+						} else {
+							assert.False(t, tick.Datetime.Before(i.Ticks[n-1].Datetime))
+						}
+					}
+
+				case *EndOfDataEvent:
+					break HIST_LOOP
+				}
+			}
+		}
+
+		assert.True(t, tickEventsN > 0)
+		assert.True(t, histEventsN > 0)
+		assert.Equal(t, 1147, totalTicks)
+	}*/
 
 }

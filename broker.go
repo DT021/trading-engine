@@ -91,8 +91,12 @@ func (b *SimBroker) proxyEvent(w *simBrokerWorker, e event) {
 		w.onReplaceRequest(i)
 	case *NewTickEvent:
 		w.onTick(i.Tick)
+	case *CandleOpenEvent:
+		w.onCandleOpen(i)
+	case *CandleCloseEvent:
+		w.onCandleClose(i)
 	default:
-		panic("Unexpected event time in broker: " + e.getName())
+		panic("Unexpected event type in broker: " + e.getName())
 	}
 }
 

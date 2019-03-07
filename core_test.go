@@ -116,7 +116,7 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 
 }
 
-func newTestLargeBTM(folder string) *BTM {
+func newTestLargeBTMTick(folder string) *BTM {
 	files, err := ioutil.ReadDir(folder)
 	if err != nil {
 		panic(err)
@@ -128,9 +128,6 @@ func newTestLargeBTM(folder string) *BTM {
 			testSymbols = append(testSymbols, f.Name())
 		}
 	}
-
-
-	//testSymbols = testSymbols[:10]
 
 	fromDate := time.Date(2018, 3, 1, 0, 0, 0, 0, time.UTC)
 	toDate := time.Date(2018, 5, 1, 0, 0, 0, 0, time.UTC)
@@ -339,7 +336,7 @@ func assertStrategyBrokerEventsFlowIsCorrect(t *testing.T, genEvents []event) {
 	}
 }
 
-func engineTest(t *testing.T, md *BTM, txtLogs bool) {
+func testEngineRun(t *testing.T, md *BTM, txtLogs bool) {
 	err := os.Remove("log.txt")
 	if err != nil {
 		t.Error(err)
@@ -395,13 +392,19 @@ func engineTest(t *testing.T, md *BTM, txtLogs bool) {
 
 }
 
-func TestEngine_RunSimple(t *testing.T) {
-	md := newTestBTM()
-	engineTest(t, md, true)
+
+func TestEngine_RunSimpleTicks(t *testing.T) {
+	md := newTestBTMforTicks()
+	testEngineRun(t, md, true)
 
 }
 
-func TestEngine_RunLargeData(t *testing.T) {
-	md := newTestLargeBTM("D:\\MarketData\\json_storage\\ticks\\quotes_trades")
-	engineTest(t, md, true)
+func TestEngine_RunLargeDataTicks(t *testing.T) {
+	md := newTestLargeBTMTick("D:\\MarketData\\json_storage\\ticks\\quotes_trades")
+	testEngineRun(t, md, true)
+}
+
+func TestEngine_RunDayCandles(t *testing.T){
+	md := newTestBTMforCandles()
+	testEngineRun(t, md, true)
 }

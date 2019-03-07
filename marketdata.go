@@ -685,7 +685,7 @@ func (m *BTM) parseLineToTick(l string) (*marketdata.Tick, error) {
 
 func (m *BTM) parseLineToCandle(l string) (*marketdata.Candle, error) {
 	ls := strings.Split(l, ",")
-	if len(ls) != 8 {
+	if len(ls) != 9 {
 		return nil, errors.New("Can't parse line to candle: " + l)
 	}
 
@@ -695,43 +695,47 @@ func (m *BTM) parseLineToCandle(l string) (*marketdata.Candle, error) {
 	}
 	tm := time.Unix(i, 0)
 
-	open, err := strconv.ParseFloat(ls[1], 64)
+
+	symbol := ls[1]
+
+	open, err := strconv.ParseFloat(ls[2], 64)
 	if err != nil {
 		return nil, err
 	}
 
-	high, err := strconv.ParseFloat(ls[2], 64)
+	high, err := strconv.ParseFloat(ls[3], 64)
 	if err != nil {
 		return nil, err
 	}
 
-	low, err := strconv.ParseFloat(ls[3], 64)
+	low, err := strconv.ParseFloat(ls[4], 64)
 	if err != nil {
 		return nil, err
 	}
 
-	close_, err := strconv.ParseFloat(ls[4], 64)
+	close_, err := strconv.ParseFloat(ls[5], 64)
 	if err != nil {
 		return nil, err
 	}
 
-	closeAdj, err := strconv.ParseFloat(ls[5], 64)
+	closeAdj, err := strconv.ParseFloat(ls[6], 64)
 	if err != nil {
 		return nil, err
 	}
 
-	volume, err := strconv.ParseInt(ls[6], 10, 64)
+	volume, err := strconv.ParseInt(ls[7], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
-	openInterest, err := strconv.ParseInt(ls[7], 10, 64)
+	openInterest, err := strconv.ParseInt(ls[8], 10, 64)
 	if err != nil {
 		return nil, err
 	}
 
 	c := marketdata.Candle{
 		Datetime:     tm,
+		Symbol: symbol,
 		Open:         open,
 		High:         high,
 		Low:          low,

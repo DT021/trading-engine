@@ -69,12 +69,12 @@ func (e *CandleCloseEvent) setEventTimeFromCandle() {
 	case "D":
 		closeTime := e.Candle.Datetime
 		closeTime = time.Date(closeTime.Year(), closeTime.Month(), closeTime.Day(), 23, 59, 59, 0,
-			time.UTC)
+			e.Candle.Datetime.Location())
 		e.BaseEvent.Time = closeTime
 	case "W":
 		closeTime := e.Candle.Datetime.AddDate(0, 0, 7)
 		closeTime = time.Date(closeTime.Year(), closeTime.Month(), closeTime.Day(), 23, 59, 59, 0,
-			time.UTC)
+			e.Candle.Datetime.Location())
 		e.BaseEvent.Time = closeTime
 	default:
 		minutes, err := strconv.ParseInt(e.TimeFrame, 10, 8)

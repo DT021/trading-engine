@@ -298,10 +298,15 @@ func (b *BasicStrategy) proxyEvent(e event) {
 		b.onTickHandler(i)
 	case *TickHistoryEvent:
 		b.onTickHistoryHandler(i)
+	case *CandleCloseEvent:
+		b.onCandleCloseHandler(i)
+	case *CandleOpenEvent:
+		b.onCandleOpenHandler(i)
 	case *EndOfDataEvent:
 		b.onEndOfDataHandler(i)
+
 	default:
-		panic("Unexpected event time in userStrategy: " + e.getName())
+		panic("Unexpected event type in BasicStrategy: " + e.getName())
 	}
 }
 

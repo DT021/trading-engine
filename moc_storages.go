@@ -3,7 +3,6 @@ package engine
 import (
 	"alex/marketdata"
 	"encoding/json"
-	"github.com/pkg/errors"
 	"io/ioutil"
 	"os"
 	"path"
@@ -49,7 +48,40 @@ func (s *mockStorageJSON) GetStoredTicks(symbol string, dRange marketdata.DateRa
 }
 
 func (s *mockStorageJSON) GetStoredCandles(symbol string, tf string, dRange marketdata.DateRange) (marketdata.CandleArray, error) {
-	return nil, errors.New("Not implemented method for mockStorageJSON")
+
+	pth := path.Join(s.folder, symbol + ".json")
+	if _, err := os.Stat(pth); os.IsNotExist(err) {
+		return nil, err
+	}
+
+	jsonFile, err := os.Open(pth)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer func(){
+		err := jsonFile.Close()
+		if err!=nil{
+			panic(err)
+		}
+	}()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	var candles marketdata.CandleArray
+
+	err = json.Unmarshal(byteValue, &candles)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range candles {
+		t.Symbol = symbol
+	}
+
+	return candles, err
 }
 
 

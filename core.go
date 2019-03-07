@@ -150,12 +150,19 @@ func (c *Engine) logMessage(message string) {
 }
 
 func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
-	//st := c.getSymbolStrategy(e.Symbol)
-	//st.receiveMarketData(e)
+	if c.broker.IsSimulated() {
+		c.broker.Notify(e)
+	}
+	st := c.getSymbolStrategy(e.Symbol)
+	st.notify(e)
 }
 
 func (c *Engine) eCandleClose(e *CandleCloseEvent) {
-
+	if c.broker.IsSimulated() {
+		c.broker.Notify(e)
+	}
+	st := c.getSymbolStrategy(e.Symbol)
+	st.notify(e)
 }
 
 func (c *Engine) eTick(e *NewTickEvent) {
