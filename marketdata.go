@@ -470,10 +470,10 @@ func (m *BTM) genCandlesEvents() {
 		}
 
 		e := CandleOpenEvent{
-			BaseEvent:       be(c.Datetime, c.Symbol),
-			CandleTime:      c.Datetime,
-			Price:           c.Open,
-			CandleTimeFrame: m.candlesTimeFrame,
+			BaseEvent:  be(c.Datetime, c.Symbol),
+			CandleTime: c.Datetime,
+			Price:      c.Open,
+			TimeFrame:  m.candlesTimeFrame,
 		}
 
 		//If we have stored events and current candle open event is not before first listed candle close event
@@ -536,10 +536,10 @@ func (m *BTM) genCandlesEventsWithHistory() {
 
 		if _, ok := historyLoaded[c.Symbol]; ok {
 			e := CandleOpenEvent{
-				BaseEvent:       be(c.Datetime, c.Symbol),
-				CandleTime:      c.Datetime,
-				Price:           c.Open,
-				CandleTimeFrame: m.candlesTimeFrame,
+				BaseEvent:  be(c.Datetime, c.Symbol),
+				CandleTime: c.Datetime,
+				Price:      c.Open,
+				TimeFrame:  m.candlesTimeFrame,
 			}
 
 			//If we have stored events and current candle open event is not before first listed candle close event
@@ -579,10 +579,10 @@ func (m *BTM) genCandlesEventsWithHistory() {
 
 				//First put out new tick event
 				e := CandleOpenEvent{
-					BaseEvent:       be(c.Datetime, c.Symbol),
-					CandleTime:      c.Datetime,
-					Price:           c.Open,
-					CandleTimeFrame: m.candlesTimeFrame,
+					BaseEvent:  be(c.Datetime, c.Symbol),
+					CandleTime: c.Datetime,
+					Price:      c.Open,
+					TimeFrame:  m.candlesTimeFrame,
 				}
 
 				if len(candleCloses) > 0 && !candleCloses[0].getTime().After(e.getTime()) {

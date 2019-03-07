@@ -21,7 +21,19 @@ type DummyStrategyWithLogic struct {
 }
 
 func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
+	if d.markerId == "" {
+		id, err := b.NewLimitOrder(candle.Close-0.05, OrderBuy, 200)
+		if err != nil {
+			d.markerId = id
+		}
+	}
 
+	if b.Position() != 0 && d.idToReplace == "" {
+		id, err := b.NewMarketOrder(OrderSell, 300)
+		if err != nil {
+			d.idToReplace = id
+		}
+	}
 }
 
 func (d *DummyStrategyWithLogic) OnCandleOpen(b *BasicStrategy, price float64) {
@@ -98,14 +110,13 @@ func newTestStrategyWithLogic(symbol string) *BasicStrategy {
 	errChan := make(chan error)
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
 	cc := CoreStrategyChannels{
-		errors:                errChan,
-		events:                make(chan event),
-		portfolio:             portfolioChan,
-
+		errors:    errChan,
+		events:    make(chan event),
+		portfolio: portfolioChan,
 	}
 
 	bs.init(cc)
-	bs.mdChan = make(chan *NewTickEvent, 2)
+	bs.mdChan = make(chan event, 2)
 	bs.handlersWaitGroup = &sync.WaitGroup{}
 	go func() {
 		bs.mdChan <- &NewTickEvent{}
@@ -133,12 +144,12 @@ func newTestLargeBTMTick(folder string) *BTM {
 	toDate := time.Date(2018, 5, 1, 0, 0, 0, 0, time.UTC)
 	storage := mockStorageJSON{folder: folder}
 	b := BTM{
-		Symbols:    testSymbols,
-		Folder:     "./test_data/BTM",
-		mode: MarketDataModeTicksQuotes,
-		FromDate:   fromDate,
-		ToDate:     toDate,
-		Storage:    &storage,
+		Symbols:   testSymbols,
+		Folder:    "./test_data/BTM",
+		mode:      MarketDataModeTicksQuotes,
+		FromDate:  fromDate,
+		ToDate:    toDate,
+		Storage:   &storage,
 		waitGroup: &sync.WaitGroup{},
 	}
 
@@ -392,7 +403,6 @@ func testEngineRun(t *testing.T, md *BTM, txtLogs bool) {
 
 }
 
-
 func TestEngine_RunSimpleTicks(t *testing.T) {
 	md := newTestBTMforTicks()
 	testEngineRun(t, md, true)
@@ -404,7 +414,7 @@ func TestEngine_RunLargeDataTicks(t *testing.T) {
 	testEngineRun(t, md, true)
 }
 
-func TestEngine_RunDayCandles(t *testing.T){
+func TestEngine_RunDayCandles(t *testing.T) {
 	md := newTestBTMforCandles()
 	testEngineRun(t, md, true)
 }

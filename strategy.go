@@ -78,7 +78,7 @@ type BasicStrategy struct {
 
 	log                log.Logger
 	eventsLoggingSlice eventsSliceStorage
-	mdChan             chan *NewTickEvent
+	mdChan             chan event
 	handlersWaitGroup  *sync.WaitGroup
 }
 
@@ -273,7 +273,6 @@ func (b *BasicStrategy) notify(e event) {
 		b.proxyEvent(e)
 	}
 
-
 }
 
 func (b *BasicStrategy) proxyEvent(e event) {
@@ -313,54 +312,74 @@ func (b *BasicStrategy) proxyEvent(e event) {
 //****** EVENT HANDLERS *******************************************************
 
 func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
-	b.mut.Lock()
-	defer b.mut.Unlock()
+	<-b.mdChan
+	b.handlersWaitGroup.Add(1)
+	go func() {
+		defer func() {
+			b.handlersWaitGroup.Done()
+			b.mdChan <- e
 
-	if e == nil {
-		return
+		}()
 
-	}
-	if !b.candleIsValid(e.Candle) || e.Candle == nil {
-		return
-	}
+		b.mut.Lock()
+		defer b.mut.Unlock()
 
-	b.putNewCandle(e.Candle)
+		if e == nil {
+			return
 
-	if b.currentTrade.IsOpen() {
-		err := b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
-		if err != nil {
-			b.newError(err)
 		}
-	}
-	if len(b.Candles) < b.nPeriods {
+		if !b.candleIsValid(e.Candle) || e.Candle == nil {
+			return
+		}
 
-		return
-	}
+		b.putNewCandle(e.Candle)
 
-	b.userStrategy.OnCandleClose(b, e.Candle)
+		if b.currentTrade.IsOpen() {
+			err := b.currentTrade.updatePnL(e.Candle.Close, e.Candle.Datetime)
+			if err != nil {
+				b.newError(err)
+			}
+		}
+		if len(b.Candles) < b.nPeriods {
+
+			return
+		}
+
+		b.userStrategy.OnCandleClose(b, e.Candle)
+	}()
 
 }
 
 func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
-	b.mut.Lock()
-	defer b.mut.Unlock()
+	<-b.mdChan
+	b.handlersWaitGroup.Add(1)
+	go func() {
+		defer func() {
+			b.handlersWaitGroup.Done()
+			b.mdChan <- e
 
-	if e == nil {
-		return
-	}
+		}()
+		b.mut.Lock()
+		defer b.mut.Unlock()
 
-	if !e.CandleTime.Before(b.lastCandleOpenTime) {
-		b.lastCandleOpen = e.Price
-		b.lastCandleOpenTime = e.CandleTime
-	}
-	if b.currentTrade.IsOpen() {
-		err := b.currentTrade.updatePnL(e.Price, e.CandleTime)
-		if err != nil {
-			b.newError(err)
+		if e == nil {
+			return
 		}
-	}
 
-	b.userStrategy.OnCandleOpen(b, e.Price)
+		if !e.CandleTime.Before(b.lastCandleOpenTime) {
+			b.lastCandleOpen = e.Price
+			b.lastCandleOpenTime = e.CandleTime
+		}
+		if b.currentTrade.IsOpen() {
+			err := b.currentTrade.updatePnL(e.Price, e.CandleTime)
+			if err != nil {
+				b.newError(err)
+			}
+		}
+
+		b.userStrategy.OnCandleOpen(b, e.Price)
+
+	}()
 
 }
 
@@ -458,8 +477,6 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 	}()
 
 }
-
-
 
 //onTickHistoryHandler puts history ticks in current array of ticks. It doesn't produce any events.
 func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) {
@@ -666,7 +683,7 @@ func (b *BasicStrategy) onEndOfDataHandler(e *EndOfDataEvent) {
 //Private funcs to work with data
 func (b *BasicStrategy) newError(err error) {
 	b.handlersWaitGroup.Add(1)
-	go func(){
+	go func() {
 		b.ch.errors <- err
 		b.handlersWaitGroup.Done()
 	}()

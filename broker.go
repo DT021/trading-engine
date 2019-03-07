@@ -90,7 +90,7 @@ func (b *SimBroker) proxyEvent(w *simBrokerWorker, e event) {
 	case *OrderReplaceRequestEvent:
 		w.onReplaceRequest(i)
 	case *NewTickEvent:
-		w.onTick(i.Tick)
+		w.onTick(i)
 	case *CandleOpenEvent:
 		w.onCandleOpen(i)
 	case *CandleCloseEvent:
@@ -100,8 +100,8 @@ func (b *SimBroker) proxyEvent(w *simBrokerWorker, e event) {
 	}
 }
 
-func (b *SimBroker) shutDown(){
-	for _, w := range b.workers{
+func (b *SimBroker) shutDown() {
+	for _, w := range b.workers {
 		w.shutDown()
 	}
 }
@@ -320,48 +320,236 @@ func (b *simBrokerWorker) checkModificationForReject(ordId string) error {
 }
 
 func (b *simBrokerWorker) onCandleOpen(e *CandleOpenEvent) {
-
-	//Todo
-
+	b.checkExecutions(e)
 }
 
 func (b *simBrokerWorker) onCandleClose(e *CandleCloseEvent) {
+	b.checkExecutions(e)
+}
 
-	//todo
+func (b *simBrokerWorker) checkOrderExecutionOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) []event {
+	var genEvents []event
+
+	switch o.Type {
+	case LimitOrder:
+		e := b.checkOnCandleCloseLimit(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
+		}
+
+	case LimitOnClose:
+		e := b.checkOnCandleCloseLOC(o, e)
+		if len(e) > 0 {
+			genEvents = append(genEvents, e...)
+			return genEvents
+		}
+
+	case MarketOnClose:
+		e := b.checkOnCandleCloseMOC(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
+		}
+
+	}
+
+	return nil
 
 }
 
-func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
+func (b *simBrokerWorker) checkOrderExecutionOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) []event {
+	var genEvents []event
 
-	if !b.tickIsValid(tick) {
-		err := ErrBrokenTick{
-			Tick:    *tick,
-			Message: "Got in onTick",
-			Caller:  "Sim Broker",
+	switch o.Type {
+	case LimitOrder:
+		e := b.checkOnCandleOpenLimit(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
 		}
 
-		b.newError(&err)
-		return
+	case LimitOnOpen:
+		e := b.checkOnCandleOpenLOO(o, e)
+		if len(e) > 0 {
+			genEvents = append(genEvents, e...)
+			return genEvents
+		}
+
+	case MarketOnOpen:
+		e := b.checkOnCandleOpenMOO(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
+		}
+
+	case MarketOrder:
+		e := b.checkOnCandleOpenMarket(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
+		}
 
 	}
+
+	return nil
+}
+
+func (b *simBrokerWorker) checkOnCandleCloseLimit(o *simBrokerOrder, e *CandleCloseEvent) event {
+	c := e.Candle
+	switch o.Side {
+	case OrderBuy:
+		if (c.Low < o.BrokerPrice) || (c.Low == o.BrokerPrice && !b.strictLimitOrders) {
+			price := o.Price
+			if e.TimeFrame == "D" && c.Open < o.BrokerPrice {
+				price = c.Open
+			}
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Symbol),
+				OrdId:     o.Id,
+				Price:     price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	case OrderSell:
+		if (c.High > o.BrokerPrice) || (c.High == o.BrokerPrice && !b.strictLimitOrders) {
+			price := o.Price
+			if e.TimeFrame == "D" && c.Open > o.BrokerPrice {
+				price = c.Open
+			}
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Symbol),
+				OrdId:     o.Id,
+				Price:     price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	default:
+		panic("Unknown order side: " + string(o.Side))
+
+	}
+
+	return nil
+}
+
+func (b *simBrokerWorker) checkOnCandleCloseMOC(o *simBrokerOrder, e *CandleCloseEvent) event {
+	panic("Not implemented") //TODO
+
+}
+
+func (b *simBrokerWorker) checkOnCandleCloseLOC(o *simBrokerOrder, e *CandleCloseEvent) []event {
+	panic("Not implemented") // TODO
+}
+
+func (b *simBrokerWorker) checkOnCandleOpenMOO(o *simBrokerOrder, e *CandleOpenEvent) event {
+	panic("Not implemented") //TODO
+
+}
+
+func (b *simBrokerWorker) checkOnCandleOpenLOO(o *simBrokerOrder, e *CandleOpenEvent) []event {
+	panic("Not implemented") //TODO
+
+}
+
+func (b *simBrokerWorker) checkOnCandleOpenMarket(o *simBrokerOrder, e *CandleOpenEvent) event {
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Symbol),
+		OrdId:     o.Id,
+		Price:     e.Price,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
+
+}
+
+func (b *simBrokerWorker) checkOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpenEvent) event {
+	if e.TimeFrame != "D" {
+		return nil
+	}
+	switch o.Side {
+	case OrderBuy:
+		if (e.Price < o.BrokerPrice) || (e.Price == o.BrokerPrice && !b.strictLimitOrders) {
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Symbol),
+				OrdId:     o.Id,
+				Price:     e.Price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	case OrderSell:
+		if (e.Price > o.BrokerPrice) || (e.Price == o.BrokerPrice && !b.strictLimitOrders) {
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Symbol),
+				OrdId:     o.Id,
+				Price:     e.Price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	default:
+		panic("Unknown order side: " + string(o.Side))
+
+	}
+
+	return nil
+
+}
+
+func (b *simBrokerWorker) checkExecutions(mdEvent event) {
 	b.mpMutext.Lock()
 	defer b.mpMutext.Unlock()
 
 	if len(b.orders) == 0 && len(b.generatedEvents) == 0 {
 		return
 	}
-
 	var genEvents []event
 
-	for _, o := range b.orders {
-		if o.Symbol == tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-			if o.StateUpdTime.Before(tick.Datetime) {
-				e := b.checkOrderExecutionOnTick(o, tick)
-				if e != nil {
-					genEvents = append(genEvents, e...)
+	switch i := mdEvent.(type) {
+	case *NewTickEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.Tick.Datetime) {
+					e := b.checkOrderExecutionOnTick(o, i.Tick)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
 				}
 			}
 		}
+
+	case *CandleCloseEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Candle.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.Candle.Datetime) {
+					e := b.checkOrderExecutionOnCandleClose(o, i)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
+				}
+			}
+		}
+	case *CandleOpenEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.CandleTime) {
+					e := b.checkOrderExecutionOnCandleOpen(o, i)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
+				}
+			}
+		}
+	default:
+		panic("Unexpected event type for simBrokerWorker")
+
 	}
 
 	if len(genEvents) > 0 {
@@ -380,7 +568,7 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 	var eventsToSend eventArray
 
 	for _, e := range b.generatedEvents {
-		if !e.getTime().After(tick.Datetime) {
+		if !e.getTime().After(e.getTime()) {
 			eventsToSend = append(eventsToSend, e)
 		} else {
 			eventsLeft = append(eventsLeft, e)
@@ -392,6 +580,23 @@ func (b *simBrokerWorker) onTick(tick *marketdata.Tick) {
 	for _, e := range eventsToSend {
 		b.events <- e
 	}
+
+}
+func (b *simBrokerWorker) onTick(e *NewTickEvent) {
+
+	if !b.tickIsValid(e.Tick) {
+		err := ErrBrokenTick{
+			Tick:    *e.Tick,
+			Message: "Got in onTick",
+			Caller:  "Sim Broker",
+		}
+
+		b.newError(&err)
+		return
+
+	}
+
+	b.checkExecutions(e)
 
 }
 
@@ -995,6 +1200,6 @@ func (b *simBrokerWorker) newError(e error) {
 
 }
 
-func (b *simBrokerWorker) shutDown(){
+func (b *simBrokerWorker) shutDown() {
 	b.waitGroup.Wait()
 }

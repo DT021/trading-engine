@@ -42,9 +42,9 @@ func be(datetime time.Time, symbol string) BaseEvent {
 
 type CandleOpenEvent struct {
 	BaseEvent
-	CandleTime      time.Time
-	Price           float64
-	CandleTimeFrame string
+	CandleTime time.Time
+	Price      float64
+	TimeFrame  string
 }
 
 func (c *CandleOpenEvent) getName() string {
