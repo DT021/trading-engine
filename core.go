@@ -61,7 +61,7 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 		symbols = append(symbols, k)
 	}
 
-	events := make(chan event, len(symbols))
+	events := make(chan event, 500)
 
 	broker.Init(errChan, events, symbols)
 

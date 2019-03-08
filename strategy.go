@@ -321,13 +321,17 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 
 		}()
 
+		if e == nil {
+			return
+		}
+
 		b.mut.Lock()
 		defer b.mut.Unlock()
 
-		if e == nil {
-			return
-
+		if e.getTime().After(b.mostRecentTime) {
+			b.mostRecentTime = e.getTime()
 		}
+
 		if !b.candleIsValid(e.Candle) || e.Candle == nil {
 			return
 		}
@@ -359,11 +363,16 @@ func (b *BasicStrategy) onCandleOpenHandler(e *CandleOpenEvent) {
 			b.mdChan <- e
 
 		}()
-		b.mut.Lock()
-		defer b.mut.Unlock()
 
 		if e == nil {
 			return
+		}
+
+		b.mut.Lock()
+		defer b.mut.Unlock()
+
+		if e.CandleTime.After(b.mostRecentTime) {
+			b.mostRecentTime = e.CandleTime
 		}
 
 		if !e.CandleTime.Before(b.lastCandleOpenTime) {

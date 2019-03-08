@@ -24,15 +24,17 @@ func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketd
 	if d.markerId == "" {
 		id, err := b.NewLimitOrder(candle.Close-0.05, OrderBuy, 200)
 		if err != nil {
-			d.markerId = id
+			panic(err)
 		}
+		d.markerId = id
 	}
 
 	if b.Position() != 0 && d.idToReplace == "" {
 		id, err := b.NewMarketOrder(OrderSell, 300)
 		if err != nil {
-			d.idToReplace = id
+			panic(err)
 		}
+		d.idToReplace = id
 	}
 }
 
@@ -194,18 +196,35 @@ func findErrorsInLog() []string {
 
 func assertStrategyOrderFlowIsCorrect(t *testing.T, genEvents []event) {
 	prevEventMap := make(map[string]event)
-	var prevMarketData event
+	var prevTickEvent event
+	var prevCandleEvent event
 
 	for _, e := range genEvents {
 		switch v := e.(type) {
 		case *NewTickEvent:
-			if prevMarketData == nil {
-				prevMarketData = v
+			if prevTickEvent == nil {
+				prevTickEvent = v
 				continue
 			}
-			assert.False(t, v.Tick.Datetime.Before(prevMarketData.getTime()))
-			prevMarketData = v
+			assert.False(t, v.Tick.Datetime.Before(prevTickEvent.getTime()))
+			prevTickEvent = v
 			continue
+
+		case *CandleOpenEvent:
+			if prevCandleEvent == nil {
+				prevCandleEvent = v
+				continue
+			}
+			assert.False(t, v.CandleTime.Before(prevCandleEvent.getTime()))
+			prevCandleEvent = v
+			continue
+
+		case *CandleCloseEvent:
+			assert.NotNil(t, prevCandleEvent)
+			assert.False(t, v.getTime().Before(prevCandleEvent.getTime()))
+			prevCandleEvent = v
+			continue
+
 		case *NewOrderEvent:
 			if prevEvent, ok := prevEventMap[v.LinkedOrder.Id]; ok {
 				t.Errorf("Already has event in map before NewOrderEvent: %+v", prevEvent)
