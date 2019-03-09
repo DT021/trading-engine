@@ -110,7 +110,7 @@ func (b *SimBroker) IsSimulated() bool {
 	return true
 }
 
-//*******simBrokerWorker**********************************************
+// $$$$$$$$$ SIM BROKER WORKER $$$$$$$$$$$$$$$$
 type simBrokerWorker struct {
 	symbol               string
 	errChan              chan error
@@ -124,6 +124,169 @@ type simBrokerWorker struct {
 	generatedEvents      eventArray
 	waitGroup            *sync.WaitGroup
 }
+
+func (b *simBrokerWorker) genEventTime(baseTime time.Time) time.Time {
+	newEvTime := baseTime.Add(time.Duration(b.delay) * time.Millisecond)
+	return newEvTime
+}
+
+func (b *simBrokerWorker) orderIsExpired(o *simBrokerOrder, t time.Time) bool {
+	if o.Tif == GTCTIF {
+		return false
+	}
+
+	if o.Tif == DayTIF {
+		expiringTime := time.Date(o.Time.Year(), o.Time.Month(), o.Time.Day(), b.marketCloseUntilTime.Hour,
+			b.marketCloseUntilTime.Minute, b.marketCloseUntilTime.Second, 0, o.Time.Location())
+		if t.After(expiringTime) {
+			return true
+		}
+
+		return false
+	}
+
+	return false
+}
+
+func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expectedType OrderType) error {
+	if !order.isValid() {
+		err := ErrInvalidOrder{
+			OrdId:   order.Id,
+			Message: fmt.Sprintf("Order : %+v", order),
+			Caller:  "Sim Broker",
+		}
+
+		return &err
+	}
+
+	if order.Type != expectedType {
+		err := ErrUnexpectedOrderType{
+			OrdId:        order.Id,
+			ActualType:   string(order.Type),
+			ExpectedType: string(expectedType),
+			Message:      "Got in fillOnTickLimit",
+			Caller:       "Sim Broker",
+		}
+		return &err
+	}
+
+	if order.BrokerState != ConfirmedOrder && order.BrokerState != PartialFilledOrder {
+
+		err := ErrUnexpectedOrderState{
+			OrdId:         order.Id,
+			ActualState:   string(order.State),
+			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
+			Message:       "Got in fillOnTickLimit",
+			Caller:        "Sim Broker",
+		}
+		return &err
+	}
+
+	lvsQty := order.Qty - order.BrokerExecQty
+	if lvsQty <= 0 {
+		return errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. ")
+	}
+
+	return nil
+}
+
+func (b *simBrokerWorker) addBrokerEvent(e event) {
+
+	switch i := e.(type) {
+
+	case *OrderConfirmationEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			panic("Confirmation of not existing order")
+		}
+		ord.BrokerState = ConfirmedOrder
+		ord.StateUpdTime = e.getTime()
+
+	case *OrderCancelRejectEvent:
+		_, ok := b.orders[i.OrdId]
+		if !ok {
+			panic("OrderCancelRejectEvent of not existing order")
+		}
+
+	case *OrderReplaceRejectEvent:
+		_, ok := b.orders[i.OrdId]
+		if !ok {
+			panic("OrderReplaceRejectEvent of not existing order")
+		}
+
+	case *OrderCancelEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to cancel it. ", i.OrdId)
+			panic(msg)
+		}
+
+		ord.BrokerState = CanceledOrder
+		ord.StateUpdTime = e.getTime()
+
+	case *OrderReplacedEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to replace it. ", i.OrdId)
+			panic(msg)
+		}
+
+		ord.StateUpdTime = e.getTime()
+		ord.BrokerPrice = i.NewPrice
+
+	case *OrderFillEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
+			panic(msg)
+		}
+
+		execQty := i.Qty
+
+		if execQty == ord.Qty-ord.BrokerExecQty {
+			ord.BrokerState = FilledOrder
+		} else {
+			if execQty > ord.Qty-ord.BrokerExecQty {
+				panic("Large qty")
+			}
+			ord.BrokerState = PartialFilledOrder
+		}
+
+		ord.BrokerExecQty += i.Qty
+
+	case *OrderRejectedEvent:
+		ord, ok := b.orders[i.OrdId]
+		if !ok {
+			panic("Confirmation of not existing order")
+		}
+		if ord.BrokerState != ConfirmedOrder {
+			ord.BrokerState = RejectedOrder
+		}
+
+		ord.StateUpdTime = e.getTime()
+
+	}
+	b.generatedEvents = append(b.generatedEvents, e)
+
+}
+
+func (b *simBrokerWorker) newError(e error) {
+	if b.errChan == nil {
+		panic("Simulated broker error chan is nil")
+	}
+	b.waitGroup.Add(1)
+	go func() {
+		b.errChan <- e
+		b.waitGroup.Done()
+	}()
+
+}
+
+func (b *simBrokerWorker) shutDown() {
+	b.waitGroup.Wait()
+}
+
+//********* EVENT HANDLERS **********************************************************
 
 func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 	b.mpMutext.Lock()
@@ -142,7 +305,7 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 			BrokerExecQty: 0,
 			StateUpdTime:  rejectEvent.getTime(),
 		}
-		b.executeBrokerEvent(&rejectEvent)
+		b.addBrokerEvent(&rejectEvent)
 		return
 	}
 
@@ -153,7 +316,7 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 			Reason:    r,
 			BaseEvent: be(b.genEventTime(e.getTime()), e.Symbol),
 		}
-		b.executeBrokerEvent(&rejectEvent)
+		b.addBrokerEvent(&rejectEvent)
 
 		return
 	}
@@ -171,7 +334,7 @@ func (b *simBrokerWorker) onNewOrder(e *NewOrderEvent) {
 		StateUpdTime:  confEvent.getTime(),
 	}
 
-	b.executeBrokerEvent(&confEvent)
+	b.addBrokerEvent(&confEvent)
 
 }
 
@@ -186,7 +349,7 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Broker can't find order with ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -196,7 +359,7 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is already canceled ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -206,7 +369,7 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is not confirmed yet ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -216,7 +379,7 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is already filled ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -224,7 +387,7 @@ func (b *simBrokerWorker) onCancelRequest(e *OrderCancelRequestEvent) {
 		OrdId:     e.OrdId,
 		BaseEvent: be(newEvTime, e.Symbol),
 	}
-	b.executeBrokerEvent(&orderCancelE)
+	b.addBrokerEvent(&orderCancelE)
 
 }
 
@@ -240,7 +403,7 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Broker can't find order with ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -250,7 +413,7 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is already canceled ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -260,7 +423,7 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is not confirmed yet ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -270,7 +433,7 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    "Order is already filled ID: " + e.OrdId,
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -280,7 +443,7 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 			OrdId:     e.OrdId,
 			Reason:    fmt.Sprintf("Replace price %v is not valid", e.NewPrice),
 		}
-		b.executeBrokerEvent(&e)
+		b.addBrokerEvent(&e)
 		return
 	}
 
@@ -289,102 +452,191 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 		NewPrice:  e.NewPrice,
 		BaseEvent: be(newEvTime, e.Symbol),
 	}
-	b.executeBrokerEvent(&replacedEvent)
-}
-
-func (b *simBrokerWorker) checkModificationForReject(ordId string) error {
-
-	if _, ok := b.orders[ordId]; !ok {
-		err := ErrOrderNotFoundInOrdersMap{
-			OrdId:   ordId,
-			Message: fmt.Sprintf("Can't %v order.", "re"),
-			Caller:  "Sim Broker",
-		}
-		return &err
-
-	}
-
-	if b.orders[ordId].BrokerState != ConfirmedOrder && b.orders[ordId].BrokerState != PartialFilledOrder {
-		err := ErrUnexpectedOrderState{
-			OrdId:         ordId,
-			ActualState:   string(b.orders[ordId].State),
-			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
-			Message:       fmt.Sprintf("Can't %v order.", "re"),
-			Caller:        "Sim Broker",
-		}
-		return &err
-
-	}
-
-	return nil
+	b.addBrokerEvent(&replacedEvent)
 }
 
 func (b *simBrokerWorker) onCandleOpen(e *CandleOpenEvent) {
-	b.checkExecutions(e)
+	b.findExecutions(e)
 }
 
 func (b *simBrokerWorker) onCandleClose(e *CandleCloseEvent) {
-	b.checkExecutions(e)
+	b.findExecutions(e)
 }
 
-func (b *simBrokerWorker) checkOrderExecutionOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) []event {
+func (b *simBrokerWorker) onTick(e *NewTickEvent) {
+
+	if !e.Tick.IsValid() {
+		err := ErrBrokenTick{
+			Tick:    *e.Tick,
+			Message: "Got in onTick",
+			Caller:  "Sim Broker",
+		}
+		b.newError(&err)
+		return
+
+	}
+
+	b.findExecutions(e)
+
+}
+
+// ************ ORDER EXECUTORS *************************************************************
+
+func (b *simBrokerWorker) findExecutions(mdEvent event) {
+	b.mpMutext.Lock()
+	defer b.mpMutext.Unlock()
+
+	if len(b.orders) == 0 && len(b.generatedEvents) == 0 {
+		return
+	}
+	var genEvents []event
+
+	switch i := mdEvent.(type) {
+	case *NewTickEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.Tick.Datetime) {
+					e := b.findExecutionsOnTick(o, i.Tick)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
+				}
+			}
+		}
+
+	case *CandleCloseEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Candle.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.Candle.Datetime) {
+					e := b.findExecutionsOnCandleClose(o, i)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
+				}
+			}
+		}
+	case *CandleOpenEvent:
+		for _, o := range b.orders {
+			if o.Symbol == i.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+				if o.StateUpdTime.Before(i.CandleTime) {
+					e := b.findExecutionsOnCandleOpen(o, i)
+					if e != nil {
+						genEvents = append(genEvents, e...)
+					}
+				}
+			}
+		}
+	default:
+		panic("Unexpected event type for simBrokerWorker")
+
+	}
+
+	if len(genEvents) > 0 {
+		for _, e := range genEvents {
+			b.addBrokerEvent(e)
+		}
+	}
+
+	if len(b.generatedEvents) == 0 {
+		return
+	}
+
+	b.generatedEvents.sort()
+
+	var eventsLeft eventArray
+	var eventsToSend eventArray
+
+	for _, e := range b.generatedEvents {
+		if !e.getTime().After(e.getTime()) {
+			eventsToSend = append(eventsToSend, e)
+		} else {
+			eventsLeft = append(eventsLeft, e)
+		}
+	}
+
+	b.generatedEvents = eventsLeft
+
+	for _, e := range eventsToSend {
+		b.events <- e
+	}
+
+}
+
+func (b *simBrokerWorker) findExecutionsOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) []event {
+
+	if b.orderIsExpired(o, e.getTime()) {
+		orderCancelE := OrderCancelEvent{
+			OrdId:     o.Id,
+			BaseEvent: be(b.genEventTime(e.getTime()), o.Symbol),
+		}
+		return []event{&orderCancelE}
+	}
+
 	var genEvents []event
 
 	switch o.Type {
 	case LimitOrder:
-		e := b.checkOnCandleCloseLimit(o, e)
+		e := b.fillOnCandleCloseLimit(o, e)
 		if e != nil {
 			genEvents = append(genEvents, e)
 			return genEvents
 		}
 
 	case LimitOnClose:
-		e := b.checkOnCandleCloseLOC(o, e)
+		e := b.fillOnCandleCloseLOC(o, e)
 		if len(e) > 0 {
 			genEvents = append(genEvents, e...)
 			return genEvents
 		}
 
 	case MarketOnClose:
-		e := b.checkOnCandleCloseMOC(o, e)
+		e := b.fillOnCandleCloseMOC(o, e)
 		if e != nil {
 			genEvents = append(genEvents, e)
 			return genEvents
 		}
-
 	}
 
 	return nil
 
 }
 
-func (b *simBrokerWorker) checkOrderExecutionOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) []event {
+func (b *simBrokerWorker) findExecutionsOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) []event {
+
+	if b.orderIsExpired(o, e.getTime()) {
+		orderCancelE := OrderCancelEvent{
+			OrdId:     o.Id,
+			BaseEvent: be(b.genEventTime(e.getTime()), o.Symbol),
+		}
+		return []event{&orderCancelE}
+	}
+
 	var genEvents []event
 
 	switch o.Type {
 	case LimitOrder:
-		e := b.checkOnCandleOpenLimit(o, e)
+		e := b.fillOnCandleOpenLimit(o, e)
 		if e != nil {
 			genEvents = append(genEvents, e)
 			return genEvents
 		}
 
 	case LimitOnOpen:
-		e := b.checkOnCandleOpenLOO(o, e)
+		e := b.fillOnCandleOpenLOO(o, e)
 		if len(e) > 0 {
 			genEvents = append(genEvents, e...)
 			return genEvents
 		}
 
 	case MarketOnOpen:
-		e := b.checkOnCandleOpenMOO(o, e)
+		e := b.fillOnCandleOpenMOO(o, e)
 		if e != nil {
 			genEvents = append(genEvents, e)
 			return genEvents
 		}
 
 	case MarketOrder:
-		e := b.checkOnCandleOpenMarket(o, e)
+		e := b.fillOnCandleOpenMarket(o, e)
 		if e != nil {
 			genEvents = append(genEvents, e)
 			return genEvents
@@ -395,7 +647,68 @@ func (b *simBrokerWorker) checkOrderExecutionOnCandleOpen(o *simBrokerOrder, e *
 	return nil
 }
 
-func (b *simBrokerWorker) checkOnCandleCloseLimit(o *simBrokerOrder, e *CandleCloseEvent) event {
+func (b *simBrokerWorker) findExecutionsOnTick(orderSim *simBrokerOrder, tick *marketdata.Tick) []event {
+
+	err := b.validateOrderForExecution(orderSim, orderSim.Type)
+	if err != nil {
+		b.newError(err)
+		return nil
+	}
+
+	convertToList := func(e event) []event {
+		if e == nil {
+			return nil
+		}
+		return []event{e}
+	}
+
+	if b.orderIsExpired(orderSim, tick.Datetime) {
+		orderCancelE := OrderCancelEvent{
+			OrdId:     orderSim.Id,
+			BaseEvent: be(b.genEventTime(tick.Datetime), orderSim.Symbol),
+		}
+		return convertToList(&orderCancelE)
+	}
+
+	switch orderSim.Type {
+
+	case MarketOrder:
+		e := convertToList(b.fillOnTickMarket(orderSim, tick))
+		return e
+	case LimitOrder:
+		e := convertToList(b.fillOnTickLimit(orderSim, tick))
+		return e
+	case StopOrder:
+		e := convertToList(b.fillOnTickStop(orderSim, tick))
+		return e
+	case LimitOnClose:
+		e := b.fillOnTickLOC(orderSim, tick)
+		return e
+	case LimitOnOpen:
+		e := b.fillOnTickLOO(orderSim, tick)
+		return e
+	case MarketOnOpen:
+		e := convertToList(b.fillOnTickMOO(orderSim, tick))
+		return e
+	case MarketOnClose:
+		e := convertToList(b.fillOnTickMOC(orderSim, tick))
+		return e
+	default:
+		err := ErrUnknownOrderType{
+			OrdId:   orderSim.Id,
+			Message: "found order with type: " + string(orderSim.Type),
+			Caller:  "Sim Broker",
+		}
+		b.newError(&err)
+	}
+
+	return nil
+
+}
+
+// ********* CANDLE CLOSE EXECUTORS *********************************************************
+
+func (b *simBrokerWorker) fillOnCandleCloseLimit(o *simBrokerOrder, e *CandleCloseEvent) event {
 	c := e.Candle
 	switch o.Side {
 	case OrderBuy:
@@ -436,26 +749,32 @@ func (b *simBrokerWorker) checkOnCandleCloseLimit(o *simBrokerOrder, e *CandleCl
 	return nil
 }
 
-func (b *simBrokerWorker) checkOnCandleCloseMOC(o *simBrokerOrder, e *CandleCloseEvent) event {
+func (b *simBrokerWorker) fillOnCandleCloseMOC(o *simBrokerOrder, e *CandleCloseEvent) event {
 	panic("Not implemented") //TODO
 
 }
 
-func (b *simBrokerWorker) checkOnCandleCloseLOC(o *simBrokerOrder, e *CandleCloseEvent) []event {
+func (b *simBrokerWorker) fillOnCandleCloseLOC(o *simBrokerOrder, e *CandleCloseEvent) []event {
 	panic("Not implemented") // TODO
 }
 
-func (b *simBrokerWorker) checkOnCandleOpenMOO(o *simBrokerOrder, e *CandleOpenEvent) event {
+func (b *simBrokerWorker) fillOnCandleCloseStop(o *simBrokerOrder, e *CandleCloseEvent) event {
+	panic("Not implemented") //TODO
+}
+
+// ********* CANDLE OPEN EXECUTORS ***********************************************************
+
+func (b *simBrokerWorker) fillOnCandleOpenMOO(o *simBrokerOrder, e *CandleOpenEvent) event {
 	panic("Not implemented") //TODO
 
 }
 
-func (b *simBrokerWorker) checkOnCandleOpenLOO(o *simBrokerOrder, e *CandleOpenEvent) []event {
+func (b *simBrokerWorker) fillOnCandleOpenLOO(o *simBrokerOrder, e *CandleOpenEvent) []event {
 	panic("Not implemented") //TODO
 
 }
 
-func (b *simBrokerWorker) checkOnCandleOpenMarket(o *simBrokerOrder, e *CandleOpenEvent) event {
+func (b *simBrokerWorker) fillOnCandleOpenMarket(o *simBrokerOrder, e *CandleOpenEvent) event {
 	fe := OrderFillEvent{
 		BaseEvent: be(e.getTime(), e.Symbol),
 		OrdId:     o.Id,
@@ -467,7 +786,7 @@ func (b *simBrokerWorker) checkOnCandleOpenMarket(o *simBrokerOrder, e *CandleOp
 
 }
 
-func (b *simBrokerWorker) checkOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpenEvent) event {
+func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpenEvent) event {
 	if e.TimeFrame != "D" {
 		return nil
 	}
@@ -503,162 +822,13 @@ func (b *simBrokerWorker) checkOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpe
 
 }
 
-func (b *simBrokerWorker) checkExecutions(mdEvent event) {
-	b.mpMutext.Lock()
-	defer b.mpMutext.Unlock()
-
-	if len(b.orders) == 0 && len(b.generatedEvents) == 0 {
-		return
-	}
-	var genEvents []event
-
-	switch i := mdEvent.(type) {
-	case *NewTickEvent:
-		for _, o := range b.orders {
-			if o.Symbol == i.Tick.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-				if o.StateUpdTime.Before(i.Tick.Datetime) {
-					e := b.checkOrderExecutionOnTick(o, i.Tick)
-					if e != nil {
-						genEvents = append(genEvents, e...)
-					}
-				}
-			}
-		}
-
-	case *CandleCloseEvent:
-		for _, o := range b.orders {
-			if o.Symbol == i.Candle.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-				if o.StateUpdTime.Before(i.Candle.Datetime) {
-					e := b.checkOrderExecutionOnCandleClose(o, i)
-					if e != nil {
-						genEvents = append(genEvents, e...)
-					}
-				}
-			}
-		}
-	case *CandleOpenEvent:
-		for _, o := range b.orders {
-			if o.Symbol == i.Symbol && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-				if o.StateUpdTime.Before(i.CandleTime) {
-					e := b.checkOrderExecutionOnCandleOpen(o, i)
-					if e != nil {
-						genEvents = append(genEvents, e...)
-					}
-				}
-			}
-		}
-	default:
-		panic("Unexpected event type for simBrokerWorker")
-
-	}
-
-	if len(genEvents) > 0 {
-		for _, e := range genEvents {
-			b.executeBrokerEvent(e)
-		}
-	}
-
-	if len(b.generatedEvents) == 0 {
-		return
-	}
-
-	b.generatedEvents.sort()
-
-	var eventsLeft eventArray
-	var eventsToSend eventArray
-
-	for _, e := range b.generatedEvents {
-		if !e.getTime().After(e.getTime()) {
-			eventsToSend = append(eventsToSend, e)
-		} else {
-			eventsLeft = append(eventsLeft, e)
-		}
-	}
-
-	b.generatedEvents = eventsLeft
-
-	for _, e := range eventsToSend {
-		b.events <- e
-	}
-
-}
-func (b *simBrokerWorker) onTick(e *NewTickEvent) {
-
-	if !b.tickIsValid(e.Tick) {
-		err := ErrBrokenTick{
-			Tick:    *e.Tick,
-			Message: "Got in onTick",
-			Caller:  "Sim Broker",
-		}
-
-		b.newError(&err)
-		return
-
-	}
-
-	b.checkExecutions(e)
-
+func (b *simBrokerWorker) fillOnCandleOpenStop(o *simBrokerOrder, e *CandleOpenEvent) event {
+	panic("Not implemented") //TODO
 }
 
-func (b *simBrokerWorker) tickIsValid(tick *marketdata.Tick) bool {
-	if !tick.HasQuote() && !tick.HasTrade() {
-		return false
-	}
-	return true
-}
+//********** ON TICK FILLS ***********************************************************************
 
-func (b *simBrokerWorker) checkOrderExecutionOnTick(orderSim *simBrokerOrder, tick *marketdata.Tick) []event {
-
-	err := b.validateOrderForExecution(orderSim, orderSim.Type)
-	if err != nil {
-		b.newError(err)
-		return nil
-	}
-
-	convertToList := func(e event) []event {
-		if e == nil {
-			return nil
-		}
-		return []event{e}
-	}
-
-	switch orderSim.Type {
-
-	case MarketOrder:
-		e := convertToList(b.checkOnTickMarket(orderSim, tick))
-		return e
-	case LimitOrder:
-		e := convertToList(b.checkOnTickLimit(orderSim, tick))
-		return e
-	case StopOrder:
-		e := convertToList(b.checkOnTickStop(orderSim, tick))
-		return e
-	case LimitOnClose:
-		e := b.checkOnTickLOC(orderSim, tick)
-		return e
-	case LimitOnOpen:
-		e := b.checkOnTickLOO(orderSim, tick)
-		return e
-	case MarketOnOpen:
-		e := convertToList(b.checkOnTickMOO(orderSim, tick))
-		return e
-	case MarketOnClose:
-		e := convertToList(b.checkOnTickMOC(orderSim, tick))
-		return e
-	default:
-		err := ErrUnknownOrderType{
-			OrdId:   orderSim.Id,
-			Message: "found order with type: " + string(orderSim.Type),
-			Caller:  "Sim Broker",
-		}
-		b.newError(&err)
-	}
-
-	return nil
-
-}
-
-func (b *simBrokerWorker) checkOnTickLOO(order *simBrokerOrder, tick *marketdata.Tick) []event {
+func (b *simBrokerWorker) fillOnTickLOO(order *simBrokerOrder, tick *marketdata.Tick) []event {
 	err := b.validateOrderForExecution(order, LimitOnOpen)
 	if err != nil {
 		b.newError(err)
@@ -676,11 +846,11 @@ func (b *simBrokerWorker) checkOnTickLOO(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
-	return b.checkOnTickLimitAuction(order, tick)
+	return b.fillOnTickLimitAuction(order, tick)
 
 }
 
-func (b *simBrokerWorker) checkOnTickLOC(order *simBrokerOrder, tick *marketdata.Tick) []event {
+func (b *simBrokerWorker) fillOnTickLOC(order *simBrokerOrder, tick *marketdata.Tick) []event {
 	err := b.validateOrderForExecution(order, LimitOnClose)
 	if err != nil {
 		b.newError(err)
@@ -698,11 +868,11 @@ func (b *simBrokerWorker) checkOnTickLOC(order *simBrokerOrder, tick *marketdata
 		return nil
 	}
 
-	return b.checkOnTickLimitAuction(order, tick)
+	return b.fillOnTickLimitAuction(order, tick)
 
 }
 
-func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *marketdata.Tick) []event {
+func (b *simBrokerWorker) fillOnTickLimitAuction(order *simBrokerOrder, tick *marketdata.Tick) []event {
 	var generatedEvents []event
 	switch order.Side {
 	case OrderSell:
@@ -728,7 +898,7 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 	default:
 		err := ErrUnknownOrderSide{
 			OrdId:   order.Id,
-			Message: "From checkOnTickLimitAuction",
+			Message: "From fillOnTickLimitAuction",
 			Caller:  "Sim Broker",
 		}
 		b.newError(&err)
@@ -775,7 +945,7 @@ func (b *simBrokerWorker) checkOnTickLimitAuction(order *simBrokerOrder, tick *m
 
 }
 
-func (b *simBrokerWorker) checkOnTickMOO(order *simBrokerOrder, tick *marketdata.Tick) event {
+func (b *simBrokerWorker) fillOnTickMOO(order *simBrokerOrder, tick *marketdata.Tick) event {
 
 	if !tick.IsOpening {
 		return nil
@@ -801,7 +971,7 @@ func (b *simBrokerWorker) checkOnTickMOO(order *simBrokerOrder, tick *marketdata
 
 }
 
-func (b *simBrokerWorker) checkOnTickMOC(order *simBrokerOrder, tick *marketdata.Tick) event {
+func (b *simBrokerWorker) fillOnTickMOC(order *simBrokerOrder, tick *marketdata.Tick) event {
 	//Todo подумать над реализацией когда отркрывающего тика вообще нет
 	if !tick.IsClosing {
 		return nil
@@ -828,7 +998,7 @@ func (b *simBrokerWorker) checkOnTickMOC(order *simBrokerOrder, tick *marketdata
 
 }
 
-func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketdata.Tick) event {
+func (b *simBrokerWorker) fillOnTickLimit(order *simBrokerOrder, tick *marketdata.Tick) event {
 
 	if !tick.HasTrade() {
 		return nil
@@ -921,12 +1091,7 @@ func (b *simBrokerWorker) checkOnTickLimit(order *simBrokerOrder, tick *marketda
 
 }
 
-func (b *simBrokerWorker) genEventTime(baseTime time.Time) time.Time {
-	newEvTime := baseTime.Add(time.Duration(b.delay) * time.Millisecond)
-	return newEvTime
-}
-
-func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdata.Tick) event {
+func (b *simBrokerWorker) fillOnTickStop(order *simBrokerOrder, tick *marketdata.Tick) event {
 	if !tick.HasTrade() {
 		return nil
 	}
@@ -987,7 +1152,7 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 	default:
 		err := ErrUnknownOrderSide{
 			OrdId:   order.Id,
-			Message: "Got in checkOnTickStop",
+			Message: "Got in fillOnTickStop",
 			Caller:  "Sim Broker",
 		}
 		b.newError(&err)
@@ -996,12 +1161,12 @@ func (b *simBrokerWorker) checkOnTickStop(order *simBrokerOrder, tick *marketdat
 
 }
 
-func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketdata.Tick) event {
+func (b *simBrokerWorker) fillOnTickMarket(order *simBrokerOrder, tick *marketdata.Tick) event {
 
 	if order.Type != MarketOrder {
 		b.newError(&ErrUnexpectedOrderType{
 			OrdId:        order.Id,
-			Caller:       "SimBroker.checkOnTickMarket",
+			Caller:       "SimBroker.fillOnTickMarket",
 			ExpectedType: string(MarketOrder),
 			ActualType:   string(order.Type),
 		})
@@ -1072,134 +1237,4 @@ func (b *simBrokerWorker) checkOnTickMarket(order *simBrokerOrder, tick *marketd
 		return &fillE
 	}
 
-}
-
-//validateOrderForExecution checks if order is valid and can be filled. Returns nil if order is valid
-//or error in other cases
-func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expectedType OrderType) error {
-	if !order.isValid() {
-		err := ErrInvalidOrder{
-			OrdId:   order.Id,
-			Message: fmt.Sprintf("Order : %+v", order),
-			Caller:  "Sim Broker",
-		}
-
-		return &err
-	}
-
-	if order.Type != expectedType {
-		err := ErrUnexpectedOrderType{
-			OrdId:        order.Id,
-			ActualType:   string(order.Type),
-			ExpectedType: string(expectedType),
-			Message:      "Got in checkOnTickLimit",
-			Caller:       "Sim Broker",
-		}
-		return &err
-	}
-
-	if order.BrokerState != ConfirmedOrder && order.BrokerState != PartialFilledOrder {
-
-		err := ErrUnexpectedOrderState{
-			OrdId:         order.Id,
-			ActualState:   string(order.State),
-			ExpectedState: string(ConfirmedOrder) + "," + string(PartialFilledOrder),
-			Message:       "Got in checkOnTickLimit",
-			Caller:        "Sim Broker",
-		}
-		return &err
-	}
-
-	lvsQty := order.Qty - order.BrokerExecQty
-	if lvsQty <= 0 {
-		return errors.New("Sim broker: Lvs qty is zero or less. Nothing to execute. ")
-	}
-
-	return nil
-}
-
-func (b *simBrokerWorker) executeBrokerEvent(e event) {
-
-	//TODO нет реджектов по канселу и реплейсу
-
-	switch i := e.(type) {
-
-	case *OrderConfirmationEvent:
-		ord, ok := b.orders[i.OrdId]
-		if !ok {
-			panic("Confirmation of not existing order")
-		}
-		ord.BrokerState = ConfirmedOrder
-		ord.StateUpdTime = e.getTime()
-
-	case *OrderCancelEvent:
-		ord, ok := b.orders[i.OrdId]
-		if !ok {
-			msg := fmt.Sprintf("Can't find order %v in confirmed map to cancel it. ", i.OrdId)
-			panic(msg)
-		}
-
-		ord.BrokerState = CanceledOrder
-		ord.StateUpdTime = e.getTime()
-
-	case *OrderReplacedEvent:
-		ord, ok := b.orders[i.OrdId]
-		if !ok {
-			msg := fmt.Sprintf("Can't find order %v in confirmed map to replace it. ", i.OrdId)
-			panic(msg)
-		}
-
-		ord.StateUpdTime = e.getTime()
-		ord.BrokerPrice = i.NewPrice
-
-	case *OrderFillEvent:
-		ord, ok := b.orders[i.OrdId]
-		if !ok {
-			msg := fmt.Sprintf("Can't find order %v in confirmed map to fill it. ", i.OrdId)
-			panic(msg)
-		}
-
-		execQty := i.Qty
-
-		if execQty == ord.Qty-ord.BrokerExecQty {
-			ord.BrokerState = FilledOrder
-		} else {
-			if execQty > ord.Qty-ord.BrokerExecQty {
-				panic("Large qty")
-			}
-			ord.BrokerState = PartialFilledOrder
-		}
-
-		ord.BrokerExecQty += i.Qty
-
-	case *OrderRejectedEvent:
-		ord, ok := b.orders[i.OrdId]
-		if !ok {
-			panic("Confirmation of not existing order")
-		}
-		if ord.BrokerState != ConfirmedOrder {
-			ord.BrokerState = RejectedOrder
-		}
-
-		ord.StateUpdTime = e.getTime()
-
-	}
-	b.generatedEvents = append(b.generatedEvents, e)
-
-}
-
-func (b *simBrokerWorker) newError(e error) {
-	if b.errChan == nil {
-		panic("Simulated broker error chan is nil")
-	}
-	b.waitGroup.Add(1)
-	go func() {
-		b.errChan <- e
-		b.waitGroup.Done()
-	}()
-
-}
-
-func (b *simBrokerWorker) shutDown() {
-	b.waitGroup.Wait()
 }

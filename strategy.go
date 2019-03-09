@@ -144,16 +144,18 @@ func (b *BasicStrategy) OrderStatus(ordId string) OrderState {
 	return ""
 }
 
-func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) (string, error) {
+func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64, tif OrderTIF, destination string) (string, error) {
 	order := Order{
-		Side:   side,
-		Qty:    qty,
-		Symbol: b.symbol,
-		Price:  price,
-		State:  NewOrder,
-		Type:   LimitOrder,
-		Time:   b.mostRecentTime.Add(20 * time.Microsecond),
-		Id:     fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
+		Side:        side,
+		Qty:         qty,
+		Symbol:      b.symbol,
+		Price:       price,
+		State:       NewOrder,
+		Type:        LimitOrder,
+		Tif:         tif,
+		Destination: destination,
+		Time:        b.mostRecentTime.Add(20 * time.Microsecond),
+		Id:          fmt.Sprintf("%v_%v_%v", price, LimitOrder, rand.Float64()),
 	}
 
 	err := b.newOrder(&order)
@@ -161,16 +163,18 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64) 
 
 }
 
-func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64) (string, error) {
+func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64, tif OrderTIF, destination string) (string, error) {
 	order := Order{
-		Side:   side,
-		Qty:    qty,
-		Symbol: b.symbol,
-		Price:  math.NaN(),
-		State:  NewOrder,
-		Type:   MarketOrder,
-		Time:   b.mostRecentTime,
-		Id:     fmt.Sprintf("%v_%v", MarketOrder, rand.Float64()),
+		Side:        side,
+		Qty:         qty,
+		Symbol:      b.symbol,
+		Price:       math.NaN(),
+		State:       NewOrder,
+		Type:        MarketOrder,
+		Tif:         tif,
+		Destination: destination,
+		Time:        b.mostRecentTime,
+		Id:          fmt.Sprintf("%v_%v", MarketOrder, rand.Float64()),
 	}
 
 	err := b.newOrder(&order)

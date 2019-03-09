@@ -1,8 +1,12 @@
 package engine
 
 import (
+	"alex/marketdata"
+	"fmt"
 	"github.com/stretchr/testify/assert"
+	"math"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 )
@@ -30,7 +34,7 @@ func TestEventArray_Sort(t *testing.T) {
 		if i == 0 {
 			continue
 		}
-		if e.getTime().Before(events[i-1].getTime()){
+		if e.getTime().Before(events[i-1].getTime()) {
 			sorted = false
 		}
 
@@ -47,45 +51,21 @@ func TestEventArray_Sort(t *testing.T) {
 	}
 }
 
-/*
-
 func newTestSimBrokerWorker() *simBrokerWorker {
-	bsc := BrokerSymbolChannels{
-		signals:        make(chan event),
-		broker:         make(chan event),
-		brokerNotifier: make(chan struct{}),
-		notifyBroker:   make(chan *BrokerNotifyEvent),
-	}
 	w := simBrokerWorker{
 		symbol:               "Test",
 		errChan:              make(chan error),
-		ch:                   bsc,
-		terminationChan:      make(chan struct{}),
+		events:               make(chan event),
 		delay:                100,
 		strictLimitOrders:    false,
 		marketOpenUntilTime:  TimeOfDay{9, 35, 0},
 		marketCloseUntilTime: TimeOfDay{16, 5, 0},
 		mpMutext:             &sync.RWMutex{},
 		orders:               make(map[string]*simBrokerOrder),
+		waitGroup:            &sync.WaitGroup{},
 	}
 
 	return &w
-}
-
-func TestSimulatedBroker_Init(t *testing.T) {
-	t.Log("Test connect simulated broker")
-	{
-		b := SimBroker{}
-		errChan := make(chan error)
-		symbols := []string{"Test1", "Test2"}
-
-		b.Init(errChan, symbols)
-		for _, s := range symbols {
-			_, ok := b.workers[s]
-			assert.True(t, ok)
-		}
-	}
-
 }
 
 func getFromSimBrokerWorkerChan(ch chan event) event {
@@ -110,7 +90,7 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 		case *OrderConfirmationEvent:
 			t.Log("OK! Got confirmation event as expected")
 		default:
-			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %v", v.getName())
+			t.Fatalf("Fatal.Expected OrderConfirmationEvent. Got %+v", v)
 		}
 
 		assert.Len(t, b.orders, 1)
@@ -154,17 +134,15 @@ func TestSimulatedBroker_OnNewOrder(t *testing.T) {
 }
 
 func putNewOrderToWorkerAndGetBrokerEvent(w *simBrokerWorker, order *Order) event {
-	wg := &sync.WaitGroup{}
-	go func() {
-		wg.Add(1)
-		w.onNewOrder(&NewOrderEvent{
-			LinkedOrder: order,
-			BaseEvent:   be(order.Time, order.Symbol)})
-		wg.Done()
-	}()
 
-	v := getFromSimBrokerWorkerChan(w.ch.broker)
-	wg.Wait()
+	w.onNewOrder(&NewOrderEvent{
+		LinkedOrder: order,
+		BaseEvent:   be(order.Time, order.Symbol)})
+	if len(w.generatedEvents) == 0 {
+		return nil
+	}
+
+	v := w.generatedEvents[len(w.generatedEvents)-1]
 
 	return v
 }
@@ -177,7 +155,7 @@ func putCancelRequestToWorkerAndGetBrokerEvent(w *simBrokerWorker, orderId strin
 		wg.Done()
 	}()
 
-	v := getFromSimBrokerWorkerChan(w.ch.broker)
+	v := getFromSimBrokerWorkerChan(w.events)
 	wg.Wait()
 
 	return v
@@ -191,7 +169,7 @@ func putReplaceRequestToWorkerAndGetBrokerEvent(w *simBrokerWorker, orderId stri
 		wg.Done()
 	}()
 
-	v := getFromSimBrokerWorkerChan(w.ch.broker)
+	v := getFromSimBrokerWorkerChan(w.events)
 	wg.Wait()
 
 	return v
@@ -371,7 +349,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickMarket(order, &tick)
+				v := b.fillOnTickMarket(order, &tick)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -411,7 +389,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   300,
 				}
 
-				v := b.checkOnTickMarket(order, &tick)
+				v := b.fillOnTickMarket(order, &tick)
 
 				assert.NotNil(t, v)
 
@@ -443,7 +421,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   300,
 				}
 
-				v := b.checkOnTickMarket(order, &tick)
+				v := b.fillOnTickMarket(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -475,7 +453,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   300,
 				}
 
-				v := b.checkOnTickMarket(order, &tick)
+				v := b.fillOnTickMarket(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -502,7 +480,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   300,
 				}
 
-				v = b.checkOnTickMarket(order, &tick)
+				v = b.fillOnTickMarket(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -534,7 +512,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   600,
 				}
 
-				v := b.checkOnTickMarket(order, &tick)
+				v := b.fillOnTickMarket(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -561,7 +539,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 					AskSize:   300,
 				}
 
-				v = b.checkOnTickMarket(order, &tick)
+				v = b.fillOnTickMarket(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -592,7 +570,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				AskSize:   0,
 			}
 
-			v := b.checkOnTickMarket(order, &tick)
+			v := b.fillOnTickMarket(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			switch i := v.(type) {
 			case *OrderFillEvent:
@@ -619,7 +597,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				AskSize:   200,
 			}
 
-			v := b.checkOnTickMarket(order, &tick)
+			v := b.fillOnTickMarket(order, &tick)
 			assert.Nil(t, v)
 			select {
 			case err := <-b.errChan:
@@ -646,7 +624,7 @@ func TestSimulatedBroker_checkOnTickMarket(t *testing.T) {
 				AskSize:   200,
 			}
 
-			v := b.checkOnTickMarket(order, &tick)
+			v := b.fillOnTickMarket(order, &tick)
 			assert.Nil(t, v)
 
 			select {
@@ -679,7 +657,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e := b.checkOnTickLimit(order, &tick)
+		e := b.fillOnTickLimit(order, &tick)
 		assert.Nil(t, e)
 
 		err := getTestSimBrokerGeneratedErrors(b)
@@ -704,7 +682,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e := b.checkOnTickLimit(order, &tick)
+		e := b.fillOnTickLimit(order, &tick)
 		assert.Nil(t, e)
 		err := getTestSimBrokerGeneratedErrors(b)
 
@@ -726,7 +704,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e := b.checkOnTickLimit(order, &tick)
+		e := b.fillOnTickLimit(order, &tick)
 		assert.Nil(t, e)
 		err := getTestSimBrokerGeneratedErrors(b)
 		assert.IsType(t, &ErrInvalidOrder{}, err)
@@ -745,7 +723,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e := b.checkOnTickLimit(order, &tick)
+		e := b.fillOnTickLimit(order, &tick)
 		assert.Nil(t, e)
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -757,7 +735,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e = b.checkOnTickLimit(order, &tick)
+		e = b.fillOnTickLimit(order, &tick)
 		assert.Nil(t, e)
 		assertNoErrorsGeneratedByBroker(t, b)
 	}
@@ -776,7 +754,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 			AskPrice:  math.NaN(),
 		}
 
-		e := b.checkOnTickLimit(order, &tick)
+		e := b.fillOnTickLimit(order, &tick)
 		assert.Equal(t, NewOrder, order.BrokerState)
 		assert.Nil(t, e)
 		err := getTestSimBrokerGeneratedErrors(b)
@@ -800,7 +778,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 
 				assert.NotNil(t, v)
@@ -831,7 +809,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					e := b.checkOnTickLimit(order, &tick)
+					e := b.fillOnTickLimit(order, &tick)
 					assertNoErrorsGeneratedByBroker(t, b)
 					assert.Nil(t, e)
 				}
@@ -845,7 +823,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					v := b.checkOnTickLimit(order, &tick)
+					v := b.fillOnTickLimit(order, &tick)
 					assertNoErrorsGeneratedByBroker(t, b)
 					assert.NotNil(t, v)
 					order.BrokerExecQty = 100
@@ -871,7 +849,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					v := b.checkOnTickLimit(order, &tick)
+					v := b.fillOnTickLimit(order, &tick)
 					assertNoErrorsGeneratedByBroker(t, b)
 					assert.NotNil(t, v)
 					order.BrokerExecQty = 200
@@ -905,7 +883,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.Nil(t, v)
 			}
@@ -919,7 +897,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -950,7 +928,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -977,7 +955,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1008,7 +986,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1037,7 +1015,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					v := b.checkOnTickLimit(order, &tick)
+					v := b.fillOnTickLimit(order, &tick)
 					assert.Nil(t, v)
 					assertNoErrorsGeneratedByBroker(t, b)
 				}
@@ -1051,7 +1029,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					v := b.checkOnTickLimit(order, &tick)
+					v := b.fillOnTickLimit(order, &tick)
 					assertNoErrorsGeneratedByBroker(t, b)
 					assert.NotNil(t, v)
 					order.BrokerExecQty = 100
@@ -1076,7 +1054,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 						AskPrice:  math.NaN(),
 					}
 
-					v := b.checkOnTickLimit(order, &tick)
+					v := b.fillOnTickLimit(order, &tick)
 					assertNoErrorsGeneratedByBroker(t, b)
 					assert.NotNil(t, v)
 					order.BrokerExecQty = 200
@@ -1110,7 +1088,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assert.Nil(t, v)
 				assertNoErrorsGeneratedByBroker(t, b)
 			}
@@ -1124,7 +1102,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1153,7 +1131,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1178,7 +1156,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assert.NotNil(t, v)
 
 				switch v.(type) {
@@ -1202,7 +1180,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickLimit(order, &tick)
+				v := b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 				order.BrokerExecQty = 100
@@ -1224,7 +1202,7 @@ func TestSimulatedBroker_checkOnTickLimit(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v = b.checkOnTickLimit(order, &tick)
+				v = b.fillOnTickLimit(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1259,7 +1237,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e := b.checkOnTickStop(order, &tick)
+			e := b.fillOnTickStop(order, &tick)
 			assert.Nil(t, e)
 			err := getTestSimBrokerGeneratedErrors(b)
 			assert.NotNil(t, err)
@@ -1282,7 +1260,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e := b.checkOnTickStop(order, &tick)
+			e := b.fillOnTickStop(order, &tick)
 			assert.Nil(t, e)
 			err := getTestSimBrokerGeneratedErrors(b)
 
@@ -1305,7 +1283,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e := b.checkOnTickStop(order, &tick)
+			e := b.fillOnTickStop(order, &tick)
 			assert.Nil(t, e)
 			err := getTestSimBrokerGeneratedErrors(b)
 			assert.IsType(t, &ErrInvalidOrder{}, err)
@@ -1325,7 +1303,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e := b.checkOnTickStop(order, &tick)
+			e := b.fillOnTickStop(order, &tick)
 			assert.Nil(t, e)
 			assertNoErrorsGeneratedByBroker(t, b)
 
@@ -1337,7 +1315,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e = b.checkOnTickStop(order, &tick)
+			e = b.fillOnTickStop(order, &tick)
 			assert.Nil(t, e)
 			assertNoErrorsGeneratedByBroker(t, b)
 		}
@@ -1357,7 +1335,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 				AskPrice:  math.NaN(),
 			}
 
-			e := b.checkOnTickStop(order, &tick)
+			e := b.fillOnTickStop(order, &tick)
 			assert.Equal(t, NewOrder, order.BrokerState)
 			assert.Nil(t, e)
 			err := getTestSimBrokerGeneratedErrors(b)
@@ -1379,7 +1357,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1409,7 +1387,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  20.12,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1439,7 +1417,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assert.Nil(t, v)
 				assertNoErrorsGeneratedByBroker(t, b)
 			}
@@ -1459,7 +1437,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assert.Nil(t, v)
 				assertNoErrorsGeneratedByBroker(t, b)
 			}
@@ -1479,7 +1457,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1507,7 +1485,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1531,7 +1509,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v = b.checkOnTickStop(order, &tick)
+				v = b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1562,7 +1540,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1592,7 +1570,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1622,7 +1600,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assert.Nil(t, v)
 				assertNoErrorsGeneratedByBroker(t, b)
 
@@ -1643,7 +1621,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assert.Nil(t, v)
 				assertNoErrorsGeneratedByBroker(t, b)
 			}
@@ -1663,7 +1641,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskSize:   200,
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1691,7 +1669,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v := b.checkOnTickStop(order, &tick)
+				v := b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1715,7 +1693,7 @@ func TestSimulatedBroker_checkOnTickStop(t *testing.T) {
 					AskPrice:  math.NaN(),
 				}
 
-				v = b.checkOnTickStop(order, &tick)
+				v = b.fillOnTickStop(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -1752,7 +1730,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickMOO(order, &tick)
+			v := b.fillOnTickMOO(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -1782,7 +1760,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 				IsOpening: false,
 			}
 
-			v := b.checkOnTickMOO(order, &tick)
+			v := b.fillOnTickMOO(order, &tick)
 			assert.Nil(t, v)
 			assertNoErrorsGeneratedByBroker(t, b)
 		}
@@ -1805,7 +1783,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickMOO(order, &tick)
+			v := b.fillOnTickMOO(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -1835,7 +1813,7 @@ func TestSimulatedBroker_checkOnTickMOO(t *testing.T) {
 				IsOpening: false,
 			}
 
-			v := b.checkOnTickMOO(order, &tick)
+			v := b.fillOnTickMOO(order, &tick)
 			assert.Nil(t, v)
 			assertNoErrorsGeneratedByBroker(t, b)
 		}
@@ -1861,7 +1839,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 				IsClosing: true,
 			}
 
-			v := b.checkOnTickMOC(order, &tick)
+			v := b.fillOnTickMOC(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -1890,7 +1868,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 				IsClosing: false,
 			}
 
-			v := b.checkOnTickMOC(order, &tick)
+			v := b.fillOnTickMOC(order, &tick)
 			assert.Nil(t, v)
 			assertNoErrorsGeneratedByBroker(t, b)
 		}
@@ -1913,7 +1891,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 				IsClosing: true,
 			}
 
-			v := b.checkOnTickMOC(order, &tick)
+			v := b.fillOnTickMOC(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -1942,7 +1920,7 @@ func TestSimulatedBroker_checkOnTickMOC(t *testing.T) {
 				IsClosing: false,
 			}
 
-			v := b.checkOnTickMOC(order, &tick)
+			v := b.fillOnTickMOC(order, &tick)
 			assert.Nil(t, v)
 			assertNoErrorsGeneratedByBroker(t, b)
 		}
@@ -1969,7 +1947,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 
 			assert.NotNil(t, v)
@@ -2001,7 +1979,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 
 			assert.NotNil(t, v)
@@ -2033,7 +2011,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 					IsOpening: true,
 				}
 
-				v := b.checkOnTickLimitAuction(order, &tick)
+				v := b.fillOnTickLimitAuction(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 
 				assert.NotNil(t, v)
@@ -2064,7 +2042,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 					IsOpening: true,
 				}
 
-				v := b.checkOnTickLimitAuction(order, &tick)
+				v := b.fillOnTickLimitAuction(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -2095,7 +2073,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				Datetime:  time.Date(2012, 1, 2, 9, 32, 0, 0, time.UTC),
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -2134,7 +2112,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -2163,7 +2141,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 			assert.NotNil(t, v)
 
@@ -2193,7 +2171,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 					IsOpening: true,
 				}
 
-				v := b.checkOnTickLimitAuction(order, &tick)
+				v := b.fillOnTickLimitAuction(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -2221,7 +2199,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 					IsOpening: true,
 				}
 
-				v := b.checkOnTickLimitAuction(order, &tick)
+				v := b.fillOnTickLimitAuction(order, &tick)
 				assertNoErrorsGeneratedByBroker(t, b)
 				assert.NotNil(t, v)
 
@@ -2252,7 +2230,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 				IsOpening: true,
 			}
 
-			v := b.checkOnTickLimitAuction(order, &tick)
+			v := b.fillOnTickLimitAuction(order, &tick)
 			assertNoErrorsGeneratedByBroker(t, b)
 
 			assert.NotNil(t, v)
@@ -2295,7 +2273,7 @@ func TestSimulatedBroker_checkOnTickLOC(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 16, 7, 0, 0, time.UTC),
 		}
 
-		v := b.checkOnTickLOC(order, &tick)
+		v := b.fillOnTickLOC(order, &tick)
 		assertNoErrorsGeneratedByBroker(t, b)
 
 		assert.NotNil(t, v)
@@ -2324,7 +2302,7 @@ func TestSimulatedBroker_checkOnTickLOC(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 16, 3, 0, 0, time.UTC),
 		}
 
-		v := b.checkOnTickLOC(order, &tick)
+		v := b.fillOnTickLOC(order, &tick)
 		assert.Nil(t, v)
 		assertNoErrorsGeneratedByBroker(t, b)
 
@@ -2349,7 +2327,7 @@ func TestSimulatedBroker_checkOnTickLOO(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 9, 35, 1, 0, time.UTC),
 		}
 
-		v := b.checkOnTickLOO(order, &tick)
+		v := b.fillOnTickLOO(order, &tick)
 		assertNoErrorsGeneratedByBroker(t, b)
 		assert.NotNil(t, v)
 
@@ -2377,7 +2355,7 @@ func TestSimulatedBroker_checkOnTickLOO(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 9, 31, 0, 0, time.UTC),
 		}
 
-		v := b.checkOnTickLOO(order, &tick)
+		v := b.fillOnTickLOO(order, &tick)
 		assert.Nil(t, v)
 		assertNoErrorsGeneratedByBroker(t, b)
 	}
@@ -2399,9 +2377,13 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	onTick := func(t *marketdata.Tick) ([]error, []event) {
 		wg := &sync.WaitGroup{}
+		te := NewTickEvent{
+			be(t.Datetime, t.Symbol),
+			t,
+		}
 		go func() {
 			wg.Add(1)
-			b.onTick(t)
+			b.onTick(&te)
 			wg.Done()
 		}()
 
@@ -2410,17 +2392,15 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 	LOOP:
 		for {
 			select {
-			case e := <-b.ch.broker:
+			case e := <-b.events:
 				events = append(events, e)
 			case e := <-b.errChan:
 				errors = append(errors, e)
-			case b.ch.notifyBroker <- &BrokerNotifyEvent{}:
+
 			case <-time.After(5 * time.Millisecond):
 				break LOOP
 			}
 		}
-
-		<-b.ch.brokerNotifier
 
 		wg.Wait()
 
@@ -2451,7 +2431,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			Datetime:  time.Date(2010, 5, 5, 9, 30, 1, 0, time.UTC),
 		}
 
-		assert.False(t, b.tickIsValid(&tick))
+		assert.False(t, tick.IsValid())
 		prevLen := len(b.orders)
 		errors, events := onTick(&tick)
 
@@ -2636,7 +2616,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		assert.Len(t, errors, 0)
 		assert.Len(t, events, 2)
 
-		for _, v :=range events{
+		for _, v := range events {
 			assert.NotNil(t, v)
 			switch i := v.(type) {
 			case *OrderFillEvent:
@@ -2677,10 +2657,8 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 	}
 
-	for _, o := range b.orders{
+	for _, o := range b.orders {
 		assert.Equal(t, NewOrder, o.State)
 	}
 
 }
-
-*/

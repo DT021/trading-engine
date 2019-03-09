@@ -11,6 +11,7 @@ type OrderType string
 type OrderSide string
 type OrderState string
 type TradeType string
+type OrderTIF string
 
 const (
 	OrderBuy  OrderSide = "B"
@@ -35,6 +36,11 @@ const (
 	LongTrade   TradeType = "LongTrade"
 	ShortTrade  TradeType = "ShortTrade"
 	ClosedTrade TradeType = "ClosedTrade"
+
+	DayTIF     OrderTIF = "DayTIF"
+	GTCTIF     OrderTIF = "GTCTIF"
+	IOCTIF     OrderTIF = "IOCTIF"
+	AuctionTIF OrderTIF = "AuctionTIF"
 )
 
 type TimeOfDay struct {
@@ -64,23 +70,31 @@ func (t *TimeOfDay) Before(datetime time.Time) bool {
 }
 
 type Order struct {
-	Side      OrderSide
-	Qty       int64
-	ExecQty   int64
-	Symbol    string
-	State     OrderState
-	Price     float64
-	ExecPrice float64
-	Type      OrderType
-	Id        string
-	Mark1     string
-	Mark2     string
-	Time      time.Time
+	Side        OrderSide
+	Qty         int64
+	ExecQty     int64
+	Symbol      string
+	State       OrderState
+	Price       float64
+	ExecPrice   float64
+	Type        OrderType
+	Tif         OrderTIF
+	Destination string
+	Id          string
+	Mark1       string
+	Mark2       string
+	Time        time.Time
 }
 
 //isValid returns if order has right prices (NaN for market orders and specified for Limit and Stop)
 //valid order side, type, id and qty
 func (o *Order) isValid() bool {
+	if string(o.Tif) == "" {
+		return false
+	}
+	if string(o.Destination) == "" {
+		return false
+	}
 	if o.Symbol == "" {
 		return false
 	}
