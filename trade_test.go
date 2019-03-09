@@ -1,15 +1,25 @@
 package engine
 
 import (
-	"testing"
 	"github.com/stretchr/testify/assert"
-	"strconv"
-	"time"
 	"math"
+	"strconv"
+	"testing"
+	"time"
 )
 
 func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {
-	o := Order{Symbol: "Test", Qty: qty, Side: side, Id: id, Price: price, ExecPrice: math.NaN(), State: NewOrder, Type: LimitOrder}
+	o := Order{Symbol: "Test",
+		Qty:         qty,
+		Side:        side,
+		Id:          id,
+		Price:       price,
+		Tif:         GTCTIF,
+		Destination: "ARCA",
+		ExecPrice:   math.NaN(),
+		State:       NewOrder,
+		Type:        LimitOrder,
+	}
 	return &o
 }
 
@@ -153,14 +163,20 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		o := newTestOrder(20, OrderBuy, 100, "2")
 		o.State = FilledOrder
 
-		trade.putNewOrder(o)
+		err := trade.putNewOrder(o)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 
 		//o = Order{Symbol: "Test2", Id: "55", State: newOrder}
 		o = newTestOrder(20, OrderBuy, 100, "55")
 		o.Symbol = "Test2"
-		trade.putNewOrder(o)
+		err = trade.putNewOrder(o)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 	}
@@ -185,7 +201,10 @@ func TestTrade_OrdersFlow(t *testing.T) {
 			}
 
 			o := newTestOrder(20, OrderBuy, 100, strconv.Itoa(i))
-			trade.putNewOrder(o)
+			err := trade.putNewOrder(o)
+			if err != nil {
+				t.Fatal(err)
+			}
 
 		}
 
@@ -197,7 +216,10 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	{
 		i := 1
 		for {
-			trade.confirmOrder(strconv.Itoa(i))
+			err := trade.confirmOrder(strconv.Itoa(i))
+			if err != nil {
+				t.Fatal(err)
+			}
 			assert.Equal(t, 5-i, len(trade.NewOrders))
 			assert.Equal(t, i, len(trade.ConfirmedOrders))
 			i ++
@@ -213,7 +235,10 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	t.Log("Add order with ID that already was in NewOrders")
 	{
 		o := newTestOrder(20, OrderBuy, 100, "1")
-		trade.putNewOrder(o)
+		err := trade.putNewOrder(o)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 0, len(trade.NewOrders))
 	}
@@ -221,15 +246,21 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	t.Log("Add order, confirm it and cancel")
 	{
 		o := newTestOrder(20, OrderBuy, 100, "10")
-		trade.putNewOrder(o)
+		err := trade.putNewOrder(o)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 		assert.Equal(t, 5, len(trade.ConfirmedOrders))
 
-		err := trade.cancelOrder("10")
+		err = trade.cancelOrder("10")
 		assert.Error(t, err, "Can't cancel order. Not found in confirmed orders")
 
-		trade.confirmOrder("10")
+		err = trade.confirmOrder("10")
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 6, len(trade.ConfirmedOrders))
 		err = trade.cancelOrder("10")
 		assert.Equal(t, 1, len(trade.CanceledOrders))
@@ -240,8 +271,11 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 	t.Log("Put new order and reject it")
 	{
-		trade.putNewOrder(newTestOrder(10, OrderSell, 500, "888"))
-		err := trade.rejectOrder("888", "Not shortable")
+		err := trade.putNewOrder(newTestOrder(10, OrderSell, 500, "888"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.rejectOrder("888", "Not shortable")
 		assert.Nil(t, err)
 		assert.Len(t, trade.RejectedOrders, 1)
 		assert.Len(t, trade.NewOrders, 0)
@@ -251,11 +285,20 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 	t.Log("Put order and replace it")
 	{
-		trade.putNewOrder(newTestOrder(200, OrderBuy, 500, "999"))
-		trade.confirmOrder("999")
+		err := trade.putNewOrder(newTestOrder(200, OrderBuy, 500, "999"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("999")
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 200.00, trade.ConfirmedOrders["999"].Price)
 
-		trade.replaceOrder("999", 150.0)
+		err = trade.replaceOrder("999", 150.0)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 150.00, trade.ConfirmedOrders["999"].Price)
 
@@ -263,8 +306,11 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		mktOrder.Price = math.NaN()
 		mktOrder.Type = MarketOrder
 
-		trade.putNewOrder(mktOrder)
-		err := trade.confirmOrder("*8")
+		err = trade.putNewOrder(mktOrder)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("*8")
 		assert.Nil(t, err)
 
 		assert.True(t, math.IsNaN(trade.ConfirmedOrders["*8"].Price))
@@ -297,9 +343,18 @@ func TestTrade_OrdersExecution(t *testing.T) {
 			t.Error(err)
 		}
 
-		trade.confirmOrder("1")
-		trade.confirmOrder("2")
-		trade.confirmOrder("3")
+		err = trade.confirmOrder("1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("3")
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 3, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -316,7 +371,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	{
 		//EXECUTE FIRST ORDER
 		execTime0 := time.Now()
-		trade.executeOrder("1", 100, 20, execTime0)
+		_, err := trade.executeOrder("1", 100, 20, execTime0)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 2, len(trade.ConfirmedOrders))
 		for _, o := range trade.ConfirmedOrders {
@@ -343,7 +401,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		//EXECUTE NEXT ORDER
 		execTime := time.Now().Add(20 * time.Minute)
-		trade.executeOrder("2", 100, 15, execTime)
+		_, err = trade.executeOrder("2", 100, 15, execTime)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 15.0, trade.ConfirmedOrders["2"].ExecPrice)
 		assert.Equal(t, int64(100), trade.ConfirmedOrders["2"].ExecQty)
@@ -363,7 +424,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		//EXECUTE SAME ORDER - COMPLITE FILL
 		execTime = time.Now().Add(22 * time.Minute)
-		trade.executeOrder("2", 100, 15, execTime)
+		_, err = trade.executeOrder("2", 100, 15, execTime)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 1, len(trade.ConfirmedOrders))
 		assert.Equal(t, 2, len(trade.FilledOrders))
@@ -385,7 +449,10 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	{
 		//EXECUTE FIRST ORDER TO COVER EXISTING POSITION
 		execTime := time.Now().Add(20 * time.Minute)
-		trade.executeOrder("3", 100, 25, execTime)
+		_, err := trade.executeOrder("3", 100, 25, execTime)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 25.0, trade.FilledOrders["3"].ExecPrice)
 		assert.Equal(t, int64(100), trade.FilledOrders["3"].ExecQty)
@@ -407,20 +474,44 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 		//PUT MORE SELL ORDERS
 
-		trade.putNewOrder(newTestOrder(25, OrderSell, 400, "4"))
-		trade.confirmOrder("4")
+		err = trade.putNewOrder(newTestOrder(25, OrderSell, 400, "4"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("4")
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 1, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
 
-		trade.putNewOrder(newTestOrder(20, OrderBuy, 100, "5"))
-		trade.confirmOrder("5")
+		err = trade.putNewOrder(newTestOrder(20, OrderBuy, 100, "5"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("5")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-		trade.putNewOrder(newTestOrder(10, OrderBuy, 200, "6"))
-		trade.confirmOrder("6")
+		err = trade.putNewOrder(newTestOrder(10, OrderBuy, 200, "6"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("6")
+		if err != nil {
+			t.Fatal(err)
+		}
 
-		trade.putNewOrder(newTestOrder(40, OrderSell, 100, "7"))
-		trade.confirmOrder("7")
+		err = trade.putNewOrder(newTestOrder(40, OrderSell, 100, "7"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("7")
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		execTime = time.Now().Add(20 * time.Minute)
 
@@ -450,11 +541,11 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, int64(200), newTrade.Qty)
 		assert.Equal(t, ShortTrade, newTrade.Type)
 		assert.Equal(t, 3, len(newTrade.ConfirmedOrders))
-		assert.Equal(t, 1, len(newTrade.FilledOrders))
+		assert.Equal(t, 0, len(newTrade.FilledOrders))
 		assert.Equal(t, 0, len(newTrade.NewOrders))
 		assert.Equal(t, 25.0, newTrade.OpenPrice)
 		assert.Equal(t, execTime, newTrade.OpenTime)
-		assert.Equal(t, 4, len(newTrade.AllOrdersIDMap))
+		assert.Equal(t, 3, len(newTrade.AllOrdersIDMap))
 		assert.Equal(t, 0.0, newTrade.ClosedPnL)
 		assert.Equal(t, 0.0, newTrade.OpenPnL)
 		assert.Equal(t, 25.0*200, newTrade.OpenValue)
@@ -463,7 +554,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		//EXECUTE SHORT ORDER ADDED TO PREVIOUS POSITION
 		p, err := newTrade.executeOrder("7", 100, 20, execTime)
 		assert.Nil(t, p)
-		assert.Equal(t, 2, len(newTrade.FilledOrders))
+		assert.Equal(t, 1, len(newTrade.FilledOrders))
 
 		assert.Equal(t, 20.0, newTrade.FilledOrders["7"].ExecPrice)
 		assert.Equal(t, int64(100), newTrade.FilledOrders["7"].ExecQty)
@@ -480,12 +571,21 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, 20.0*300, newTrade.MarketValue)
 
 		//ADD EXTRA BUY ORDER
-		newTrade.putNewOrder(newTestOrder(10, OrderBuy, 200, "8"))
-		newTrade.confirmOrder("8")
+		err = newTrade.putNewOrder(newTestOrder(10, OrderBuy, 200, "8"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = newTrade.confirmOrder("8")
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 3, len(newTrade.ConfirmedOrders))
 
 		//CANCEL ONE ORDER FROM PREVIOUS POSITION
-		newTrade.cancelOrder("6")
+		err = newTrade.cancelOrder("6")
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 2, len(newTrade.ConfirmedOrders))
 		assert.Equal(t, 1, len(newTrade.CanceledOrders))
 		assert.Equal(t, CanceledOrder, newTrade.CanceledOrders["6"].State)
@@ -534,7 +634,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Nil(t, p)
 		assert.Nil(t, err)
 		assert.Equal(t, 1, len(newTrade.ConfirmedOrders))
-		assert.Equal(t, 3, len(newTrade.FilledOrders))
+		assert.Equal(t, 2, len(newTrade.FilledOrders))
 
 		assert.Equal(t, FilledOrder, newTrade.FilledOrders["5"].State)
 		assert.Equal(t, 20.0, newTrade.FilledOrders["5"].ExecPrice)
@@ -562,7 +662,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 		assert.Equal(t, int64(0), newTrade.Qty)
 
 		assert.Equal(t, 0, len(newTrade.ConfirmedOrders))
-		assert.Equal(t, 4, len(newTrade.FilledOrders))
+		assert.Equal(t, 3, len(newTrade.FilledOrders))
 
 		assert.Equal(t, FilledOrder, newTrade.FilledOrders["8"].State)
 		assert.Equal(t, 20.0, newTrade.FilledOrders["8"].ExecPrice)
@@ -594,9 +694,18 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	{
 		execTime := time.Now()
 		trade = newFlatTrade("Test")
-		trade.putNewOrder(newTestOrder(10, OrderSell, 100, "22"))
-		trade.confirmOrder("22")
-		trade.executeOrder("22", 100, 22, execTime)
+		err := trade.putNewOrder(newTestOrder(10, OrderSell, 100, "22"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("22")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = trade.executeOrder("22", 100, 22, execTime)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, "22", trade.Id)
 		assert.Equal(t, 22.0, trade.FirstPrice)
@@ -605,14 +714,98 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 }
 
+func TestTrade_PartialFillAndReverse(t *testing.T){
+	// Test case when we have partial fill and get new position with partial filled order
+
+	trade := newFlatTrade("Test")
+	t.Log("Add, confirm valid order and execute it. Trade should be LONG")
+	{
+		err := trade.putNewOrder(newTestOrder(20, OrderBuy, 200, "1"))
+		if err != nil {
+			t.Error(err)
+		}
+
+		err = trade.confirmOrder("1")
+		if err != nil {
+			t.Error(err)
+		}
+
+		newTrade, err := trade.executeOrder("1", 200, 20, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Nil(t, newTrade)
+		assert.Equal(t, LongTrade, trade.Type)
+		assert.Equal(t, int64(200), trade.Qty)
+
+	}
+
+	t.Log("Add, confirm and partial fill short order. Expect new SHORT trade with partial filled order")
+	{
+		err := trade.putNewOrder(newTestOrder(20, OrderSell, 400, "2"))
+		if err != nil {
+			t.Error(err)
+		}
+
+		err = trade.confirmOrder("2")
+		if err != nil {
+			t.Error(err)
+		}
+
+		newTrade, err := trade.executeOrder("2", 289, 21, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.NotNil(t, newTrade)
+		assert.Equal(t, ClosedTrade, trade.Type)
+		assert.Equal(t, ShortTrade, newTrade.Type)
+		assert.Equal(t, int64(89), newTrade.Qty)
+		ord, ok := newTrade.ConfirmedOrders["2"]
+		assert.True(t, ok)
+		assert.Equal(t, PartialFilledOrder, ord.State)
+		assert.Len(t, newTrade.FilledOrders, 0)
+		assert.Len(t, newTrade.ConfirmedOrders, 1)
+
+		t.Log("Complete fill previous order. Add to currently open short position")
+		{
+			newTrade2, err := newTrade.executeOrder("2", 111, 21, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			assert.Nil(t, newTrade2)
+			assert.Equal(t, ShortTrade, newTrade.Type)
+			assert.Equal(t, int64(200), newTrade.Qty)
+			assert.Equal(t, FilledOrder, ord.State)
+			_, ok := newTrade.ConfirmedOrders["2"]
+			assert.False(t, ok)
+
+			_, ok = newTrade.FilledOrders["2"]
+			assert.True(t, ok)
+		}
+	}
+
+
+}
+
 func TestTrade_updatePnL(t *testing.T) {
 	trade := newFlatTrade("Test")
 
 	t.Log("Add execution to a trade")
 	{
-		trade.putNewOrder(newTestOrder(10, OrderSell, 100, "1"))
-		trade.confirmOrder("1")
-		trade.executeOrder("1", 100, 10, time.Now())
+		err := trade.putNewOrder(newTestOrder(10, OrderSell, 100, "1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = trade.executeOrder("1", 100, 10, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Len(t, trade.FilledOrders, 1)
 		assert.Equal(t, ShortTrade, trade.Type)
@@ -621,20 +814,29 @@ func TestTrade_updatePnL(t *testing.T) {
 
 	t.Log("Add updates")
 	{
-		trade.updatePnL(11, time.Now())
+		err := trade.updatePnL(11, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, -100.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 		assert.Len(t, trade.Returns, 1)
 		assert.Equal(t, -100.0, trade.Returns[0].OpenPnL)
 
-		trade.updatePnL(9, time.Now())
+		err = trade.updatePnL(9, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 100.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 		assert.Len(t, trade.Returns, 2)
 		assert.Equal(t, -100.0, trade.Returns[0].OpenPnL)
 		assert.Equal(t, 100.0, trade.Returns[1].OpenPnL)
 
-		trade.updatePnL(10, time.Now())
+		err = trade.updatePnL(10, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 		assert.Equal(t, 0.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 		assert.Len(t, trade.Returns, 3)
@@ -646,9 +848,18 @@ func TestTrade_updatePnL(t *testing.T) {
 
 	t.Log("Close trade and add updates to it")
 	{
-		trade.putNewOrder(newTestOrder(5, OrderBuy, 100, "2"))
-		trade.confirmOrder("2")
-		trade.executeOrder("2", 100, 5, time.Now())
+		err := trade.putNewOrder(newTestOrder(5, OrderBuy, 100, "2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = trade.executeOrder("2", 100, 5, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Len(t, trade.FilledOrders, 2)
 		assert.Equal(t, ClosedTrade, trade.Type)
@@ -657,7 +868,7 @@ func TestTrade_updatePnL(t *testing.T) {
 		assert.Equal(t, 0.0, trade.OpenPnL)
 		assert.Len(t, trade.Returns, 3)
 
-		err := trade.updatePnL(10, time.Now())
+		err = trade.updatePnL(10, time.Now())
 
 		assert.NotNil(t, err)
 
@@ -670,32 +881,53 @@ func TestTrade_updatePnL(t *testing.T) {
 	t.Log("Create long trade and check updates")
 	{
 		trade = newFlatTrade("Test")
-		trade.putNewOrder(newTestOrder(10, OrderBuy, 100, "1"))
-		trade.confirmOrder("1")
-		trade.executeOrder("1", 100, 11, time.Now())
+		err := trade.putNewOrder(newTestOrder(10, OrderBuy, 100, "1"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = trade.executeOrder("1", 100, 11, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, LongTrade, trade.Type)
 		assert.Equal(t, 0.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 		assert.Equal(t, 11.0, trade.OpenPrice)
 
-		trade.updatePnL(12, time.Now())
+		err = trade.updatePnL(12, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 100.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 
 		assert.Len(t, trade.Returns, 1)
 
-		trade.updatePnL(15, time.Now())
+		err = trade.updatePnL(15, time.Now())
 
 		assert.Equal(t, 400.0, trade.OpenPnL)
 		assert.Equal(t, 0.0, trade.ClosedPnL)
 
 		assert.Equal(t, 400.0, trade.Returns[1].OpenPnL)
 
-		trade.putNewOrder(newTestOrder(18, OrderSell, 100, "2"))
-		trade.confirmOrder("2")
-		trade.executeOrder("2", 100, 18, time.Now())
+		err = trade.putNewOrder(newTestOrder(18, OrderSell, 100, "2"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = trade.confirmOrder("2")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = trade.executeOrder("2", 100, 18, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 0.0, trade.OpenPnL)
 		assert.Equal(t, 700.0, trade.ClosedPnL)

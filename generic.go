@@ -498,7 +498,6 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
-					//newTrade.FilledOrders = map[string]*Order{id: order} TODO test with this
 					newTrade.updateAllOrdersIDMap()
 
 					t.NewOrders = make(map[string]*Order)
@@ -566,7 +565,6 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
-					//newTrade.FilledOrders = map[string]*Order{id: order}
 					newTrade.updateAllOrdersIDMap()
 
 					t.NewOrders = make(map[string]*Order)

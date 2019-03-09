@@ -75,7 +75,6 @@ func getFromSimBrokerWorkerChan(ch chan event) event {
 	case <-time.After(1 * time.Second):
 		return nil
 	}
-
 }
 
 func TestSimulatedBroker_OnNewOrder(t *testing.T) {
@@ -256,7 +255,7 @@ func TestSimulatedBroker_OnReplaceRequest(t *testing.T) {
 			assert.Equal(t, 15.5, e.NewPrice)
 			assert.Equal(t, order.Id, e.OrdId)
 		default:
-			t.Fatalf("Fatal.Expected OrderCancelEvent. Got %v", v.getName())
+			t.Fatalf("Fatal.Expected OrderCancelEvent. Got %+v", v)
 		}
 
 	}
