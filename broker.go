@@ -203,16 +203,8 @@ func (b *simBrokerWorker) addBrokerEvent(e event) {
 		ord.StateUpdTime = e.getTime()
 
 	case *OrderCancelRejectEvent:
-		_, ok := b.orders[i.OrdId]
-		if !ok {
-			panic("OrderCancelRejectEvent of not existing order")
-		}
 
 	case *OrderReplaceRejectEvent:
-		_, ok := b.orders[i.OrdId]
-		if !ok {
-			panic("OrderReplaceRejectEvent of not existing order")
-		}
 
 	case *OrderCancelEvent:
 		ord, ok := b.orders[i.OrdId]

@@ -9,7 +9,8 @@ import (
 )
 
 func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {
-	o := Order{Symbol: "Test",
+	o := Order{
+		Symbol:      "Test",
 		Qty:         qty,
 		Side:        side,
 		Id:          id,
@@ -714,7 +715,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 
 }
 
-func TestTrade_PartialFillAndReverse(t *testing.T){
+func TestTrade_PartialFillAndReverse(t *testing.T) {
 	// Test case when we have partial fill and get new position with partial filled order
 
 	trade := newFlatTrade("Test")
@@ -785,7 +786,6 @@ func TestTrade_PartialFillAndReverse(t *testing.T){
 			assert.True(t, ok)
 		}
 	}
-
 
 }
 
