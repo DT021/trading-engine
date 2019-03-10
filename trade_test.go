@@ -159,7 +159,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 	t.Log("Put new order")
 	{
 
-		o := newTestOrder(20, OrderBuy, 100, "1")
+		o := newTestOrder(20, OrderBuy, 100, "#1")
 		err := trade.putNewOrder(o)
 		if err != nil {
 			t.Error(err)
@@ -174,18 +174,17 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		o.State = FilledOrder
 
 		err := trade.putNewOrder(o)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("Error expected")
 		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 
-		//o = Order{Ticker: "Test2", Id: "55", State: newOrder}
 		o = newTestOrder(20, OrderBuy, 100, "55")
 		o.Ticker.Symbol = "Test2"
 		err = trade.putNewOrder(o)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("Error expected")
 		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
@@ -193,7 +192,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 	t.Log("Put order with that already in NewOrders map")
 	{
-		o := newTestOrder(20, OrderBuy, 100, "1")
+		o := newTestOrder(20, OrderBuy, 100, "#1")
 		err := trade.putNewOrder(o)
 
 		assert.Equal(t, 1, len(trade.NewOrders))
@@ -213,12 +212,12 @@ func TestTrade_OrdersFlow(t *testing.T) {
 			o := newTestOrder(20, OrderBuy, 100, strconv.Itoa(i))
 			err := trade.putNewOrder(o)
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("%v for %v", err, i)
 			}
 
 		}
 
-		assert.Equal(t, 5, len(trade.NewOrders))
+		assert.Equal(t, 6, len(trade.NewOrders))
 
 	}
 
@@ -228,26 +227,30 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		for {
 			err := trade.confirmOrder(strconv.Itoa(i))
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("Found: %v, for %v", err, i)
 			}
-			assert.Equal(t, 5-i, len(trade.NewOrders))
+			assert.Equal(t, 6-i, len(trade.NewOrders))
 			assert.Equal(t, i, len(trade.ConfirmedOrders))
 			i ++
 			if i > 5 {
 				break
 			}
 		}
+		err := trade.confirmOrder("#1")
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		assert.Equal(t, 0, len(trade.NewOrders))
-		assert.Equal(t, 5, len(trade.ConfirmedOrders))
+		assert.Equal(t, 6, len(trade.ConfirmedOrders))
 	}
 
 	t.Log("Add order with ID that already was in NewOrders")
 	{
 		o := newTestOrder(20, OrderBuy, 100, "1")
 		err := trade.putNewOrder(o)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal("Error expected")
 		}
 
 		assert.Equal(t, 0, len(trade.NewOrders))
@@ -262,7 +265,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		}
 
 		assert.Equal(t, 1, len(trade.NewOrders))
-		assert.Equal(t, 5, len(trade.ConfirmedOrders))
+		assert.Equal(t, 6, len(trade.ConfirmedOrders))
 
 		err = trade.cancelOrder("10")
 		assert.Error(t, err, "Can't cancel order. Not found in confirmed orders")
@@ -271,10 +274,10 @@ func TestTrade_OrdersFlow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assert.Equal(t, 6, len(trade.ConfirmedOrders))
+		assert.Equal(t, 7, len(trade.ConfirmedOrders))
 		err = trade.cancelOrder("10")
 		assert.Equal(t, 1, len(trade.CanceledOrders))
-		assert.Equal(t, 5, len(trade.ConfirmedOrders))
+		assert.Equal(t, 6, len(trade.ConfirmedOrders))
 		assert.Equal(t, 0, len(trade.NewOrders))
 
 	}

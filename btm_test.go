@@ -291,7 +291,7 @@ func TestBTM_RunTicks(t *testing.T) {
 					histResponses[i.Ticker.Symbol] = i.Ticks
 					totalTicks += len(i.Ticks)
 					for n, tick := range i.Ticks {
-						assert.Equal(t, tick.Symbol, i.Ticker)
+						assert.Equal(t, tick.Symbol, i.Ticker.Symbol)
 						if n == 0 {
 							continue
 						} else {
