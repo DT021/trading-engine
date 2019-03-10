@@ -10,7 +10,10 @@ import (
 
 func newTestOrderTime() time.Time {
 	return time.Date(2010, 1, 5, 10, 0, 0, 0, time.UTC)
+}
 
+func newTestOpgOrderTime() time.Time {
+	return time.Date(2010, 1, 5, 9, 00, 10, 15, time.UTC)
 }
 
 func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {

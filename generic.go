@@ -9,6 +9,14 @@ import (
 )
 
 type OrderType string
+
+func (t OrderType) isAuction() bool {
+	if t == LimitOnClose || t == LimitOnOpen || t == MarketOnClose || t == MarketOnOpen {
+		return true
+	}
+	return false
+}
+
 type OrderSide string
 type OrderState string
 type TradeType string
@@ -87,8 +95,6 @@ type Tick struct {
 	*marketdata.Tick
 	Ticker *Instrument
 }
-
-
 
 type TickArray []*Tick
 
