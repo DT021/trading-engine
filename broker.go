@@ -34,16 +34,51 @@ type simBrokerOrder struct {
 	BrokerPrice   float64
 }
 
-func (o *simBrokerOrder) isExpired() bool {
-	panic("Not implemented")
+func (o *simBrokerOrder) getExpirationTime() time.Time {
+	switch o.Tif {
+	case GTCTIF:
+		return o.Time.AddDate(10, 0, 0)
+	case DayTIF:
+		nextDay := o.Time.AddDate(0, 0, 1)
+		return time.Date(nextDay.Year(), nextDay.Month(), nextDay.Day(), 0, 0, 0, 0, o.Time.Location())
+	case AuctionTIF:
+		if o.Type == MarketOnOpen || o.Type == LimitOnOpen {
+			mot := o.Ticker.Exchange.MarketOpenTime
+			t := time.Date(o.Time.Year(), o.Time.Month(), o.Time.Day(), mot.Hour, mot.Minute, mot.Second, 0, o.Time.Location())
+			return t.Add(3 * time.Minute)
+		}
+
+		if o.Type == MarketOnClose || o.Type == LimitOnClose {
+			mct := o.Ticker.Exchange.MarketCloseTime
+			t := time.Date(o.Time.Year(), o.Time.Month(), o.Time.Day(), mct.Hour, mct.Minute, mct.Second, 0, o.Time.Location())
+			return t.Add(3 * time.Second)
+		}
+
+		panic("Found non auction order type with auction tif")
+	default:
+		panic("Unknown order tif: " + string(o.Tif))
+	}
+}
+
+func (o *simBrokerOrder) isExpired(t time.Time) bool {
+	if t.After(o.getExpirationTime()){
+		return true
+	}
+	return false
+}
+
+func (o *simBrokerOrder) isActive() bool {
+	if o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder {
+		return true
+	}
+
+	return false
 }
 
 type SimBroker struct {
 	delay                  int64
 	checkExecutionsOnTicks bool
 	strictLimitOrders      bool
-	marketOpenUntilTime    TimeOfDay
-	marketCloseUntilTime   TimeOfDay
 	workers                map[string]*simBrokerWorker
 }
 
@@ -63,16 +98,14 @@ func (b *SimBroker) Init(errChan chan error, events chan event, symbols []*Instr
 
 	for _, s := range symbols {
 		bw := simBrokerWorker{
-			symbol:               s,
-			errChan:              errChan,
-			events:               events,
-			delay:                b.delay,
-			strictLimitOrders:    b.strictLimitOrders,
-			marketOpenUntilTime:  b.marketCloseUntilTime,
-			marketCloseUntilTime: b.marketCloseUntilTime,
-			mpMutext:             &sync.RWMutex{},
-			waitGroup:            &sync.WaitGroup{},
-			orders:               make(map[string]*simBrokerOrder),
+			symbol:            s,
+			errChan:           errChan,
+			events:            events,
+			delay:             b.delay,
+			strictLimitOrders: b.strictLimitOrders,
+			mpMutext:          &sync.RWMutex{},
+			waitGroup:         &sync.WaitGroup{},
+			orders:            make(map[string]*simBrokerOrder),
 		}
 		b.workers[s.Symbol] = &bw
 
@@ -115,50 +148,21 @@ func (b *SimBroker) IsSimulated() bool {
 
 // $$$$$$$$$ SIM BROKER WORKER $$$$$$$$$$$$$$$$
 type simBrokerWorker struct {
-	symbol               *Instrument
-	errChan              chan error
-	events               chan event
-	delay                int64
-	strictLimitOrders    bool
-	marketOpenUntilTime  TimeOfDay
-	marketCloseUntilTime TimeOfDay
-	mpMutext             *sync.RWMutex
-	orders               map[string]*simBrokerOrder
-	generatedEvents      eventArray
-	waitGroup            *sync.WaitGroup
+	symbol            *Instrument
+	errChan           chan error
+	events            chan event
+	delay             int64
+	strictLimitOrders bool
+
+	mpMutext        *sync.RWMutex
+	orders          map[string]*simBrokerOrder
+	generatedEvents eventArray
+	waitGroup       *sync.WaitGroup
 }
 
 func (b *simBrokerWorker) genEventTime(baseTime time.Time) time.Time {
 	newEvTime := baseTime.Add(time.Duration(b.delay) * time.Millisecond)
 	return newEvTime
-}
-
-func (b *simBrokerWorker) orderIsExpired(o *simBrokerOrder, t time.Time) bool {
-	if o.Tif == GTCTIF {
-		return false
-	}
-
-	if o.Tif == AuctionTIF {
-		if t.Day() > o.Time.Day() {
-			return true
-		}
-		if t.Day() < o.Time.Day() {
-			panic("Found time before order time")
-		}
-
-	}
-
-	if o.Tif == DayTIF {
-		expiringTime := time.Date(o.Time.Year(), o.Time.Month(), o.Time.Day(), b.marketCloseUntilTime.Hour,
-			b.marketCloseUntilTime.Minute, b.marketCloseUntilTime.Second, 0, o.Time.Location())
-		if t.After(expiringTime) {
-			return true
-		}
-
-		return false
-	}
-
-	return false
 }
 
 func (b *simBrokerWorker) validateOrderForExecution(order *simBrokerOrder, expectedType OrderType) error {
@@ -487,6 +491,19 @@ func (b *simBrokerWorker) onTick(e *NewTickEvent) {
 
 // ************ ORDER EXECUTORS *************************************************************
 
+func (b *simBrokerWorker) cancelByTif(o *simBrokerOrder, t time.Time) bool {
+	if !o.isExpired(t) {
+		return false
+	}
+
+	e := OrderCancelEvent{
+		BaseEvent: be(t, o.Ticker),
+		OrdId:     o.Id,
+	}
+	b.addBrokerEvent(&e)
+	return true
+}
+
 func (b *simBrokerWorker) findExecutions(mdEvent event) {
 	b.mpMutext.Lock()
 	defer b.mpMutext.Unlock()
@@ -499,12 +516,17 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 	switch i := mdEvent.(type) {
 	case *NewTickEvent:
 		for _, o := range b.orders {
-			if o.Ticker == i.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+			if o.isActive() && o.Ticker.Symbol == i.Ticker.Symbol {
 				if o.StateUpdTime.Before(i.Tick.Datetime) {
+					cancel := b.cancelByTif(o, i.Tick.Datetime)
+					if cancel {
+						continue
+					}
 					e := b.findExecutionsOnTick(o, i.Tick)
 					if e != nil {
 						genEvents = append(genEvents, e...)
 					}
+
 				}
 			}
 		}
@@ -513,6 +535,10 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 		for _, o := range b.orders {
 			if o.Ticker == i.Candle.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
 				if o.StateUpdTime.Before(i.Candle.Datetime) {
+					cancel := b.cancelByTif(o, i.Candle.Datetime)
+					if cancel {
+						continue
+					}
 					e := b.findExecutionsOnCandleClose(o, i)
 					if e != nil {
 						genEvents = append(genEvents, e...)
@@ -524,6 +550,10 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 		for _, o := range b.orders {
 			if o.Ticker == i.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
 				if o.StateUpdTime.Before(i.CandleTime) {
+					cancel := b.cancelByTif(o, i.CandleTime)
+					if cancel {
+						continue
+					}
 					e := b.findExecutionsOnCandleOpen(o, i)
 					if e != nil {
 						genEvents = append(genEvents, e...)
@@ -569,14 +599,6 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 
 func (b *simBrokerWorker) findExecutionsOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) []event {
 
-	if b.orderIsExpired(o, e.getTime()) {
-		orderCancelE := OrderCancelEvent{
-			OrdId:     o.Id,
-			BaseEvent: be(b.genEventTime(e.getTime()), o.Ticker),
-		}
-		return []event{&orderCancelE}
-	}
-
 	var genEvents []event
 
 	switch o.Type {
@@ -607,14 +629,6 @@ func (b *simBrokerWorker) findExecutionsOnCandleClose(o *simBrokerOrder, e *Cand
 }
 
 func (b *simBrokerWorker) findExecutionsOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) []event {
-
-	if b.orderIsExpired(o, e.getTime()) {
-		orderCancelE := OrderCancelEvent{
-			OrdId:     o.Id,
-			BaseEvent: be(b.genEventTime(e.getTime()), o.Ticker),
-		}
-		return []event{&orderCancelE}
-	}
 
 	var genEvents []event
 
@@ -665,14 +679,6 @@ func (b *simBrokerWorker) findExecutionsOnTick(orderSim *simBrokerOrder, tick *T
 			return nil
 		}
 		return []event{e}
-	}
-
-	if b.orderIsExpired(orderSim, tick.Datetime) {
-		orderCancelE := OrderCancelEvent{
-			OrdId:     orderSim.Id,
-			BaseEvent: be(b.genEventTime(tick.Datetime), orderSim.Ticker),
-		}
-		return convertToList(&orderCancelE)
 	}
 
 	switch orderSim.Type {
@@ -840,14 +846,6 @@ func (b *simBrokerWorker) fillOnTickLOO(order *simBrokerOrder, tick *Tick) []eve
 		return nil
 	}
 	if !tick.IsOpening {
-		if b.marketOpenUntilTime.Before(tick.Datetime) {
-			cancelE := OrderCancelEvent{
-				OrdId:     order.Id,
-				BaseEvent: be(b.genEventTime(tick.Datetime), order.Ticker),
-			}
-
-			return []event{&cancelE}
-		}
 		return nil
 	}
 
@@ -863,13 +861,6 @@ func (b *simBrokerWorker) fillOnTickLOC(order *simBrokerOrder, tick *Tick) []eve
 	}
 
 	if !tick.IsClosing {
-		if b.marketCloseUntilTime.Before(tick.Datetime) {
-			cancelE := OrderCancelEvent{
-				OrdId:     order.Id,
-				BaseEvent: be(b.genEventTime(tick.Datetime), tick.Ticker),
-			}
-			return []event{&cancelE}
-		}
 		return nil
 	}
 

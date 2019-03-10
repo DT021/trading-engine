@@ -324,7 +324,7 @@ func (t *Trade) putNewOrder(o *Order) error {
 	if !o.isValid() {
 		return errors.New("Trying to put invalid order")
 	}
-	if o.Ticker != t.Ticker {
+	if o.Ticker.Symbol != t.Ticker.Symbol {
 		return errors.New("Can't put new order. Trade and Order have different symbols")
 	}
 	if o.State != NewOrder {

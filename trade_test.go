@@ -8,8 +8,14 @@ import (
 	"time"
 )
 
+func newTestOrderTime() time.Time {
+	return time.Date(2010, 1, 5, 10, 0, 0, 0, time.UTC)
+
+}
+
 func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {
 	o := Order{
+		Time:        newTestOrderTime(),
 		Ticker:      newTestInstrument(),
 		Qty:         qty,
 		Side:        side,
