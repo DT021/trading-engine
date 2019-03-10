@@ -1,12 +1,11 @@
 package engine
 
 import (
-	"alex/marketdata"
 	"fmt"
 )
 
 type ErrBrokenTick struct {
-	Tick    marketdata.Tick
+	Tick    Tick
 	Message string
 	Caller  string
 }

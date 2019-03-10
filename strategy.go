@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"alex/marketdata"
 	"errors"
 	"fmt"
 	"log"
@@ -40,24 +39,25 @@ func (c *CoreStrategyChannels) isValid() bool {
 
 type ICoreStrategy interface {
 	init(ch CoreStrategyChannels)
-	ticks() marketdata.TickArray
-	candles() marketdata.CandleArray
+	ticks() TickArray
+	candles() CandleArray
 	setPortfolio(p *portfolioHandler)
 	enableEventLogging()
 	notify(e event)
 	shutDown()
+	getInstrument() *Instrument
 }
 
 type IUserStrategy interface {
-	OnTick(b *BasicStrategy, tick *marketdata.Tick)
-	OnCandleClose(b *BasicStrategy, candle *marketdata.Candle)
+	OnTick(b *BasicStrategy, tick *Tick)
+	OnCandleClose(b *BasicStrategy, candle *Candle)
 	OnCandleOpen(b *BasicStrategy, price float64)
 }
 
 type BasicStrategy struct {
 	portfolio *portfolioHandler
 	isReady   bool
-	symbol    string
+	symbol    *Instrument
 	nPeriods  int
 
 	ch                         CoreStrategyChannels
@@ -66,8 +66,8 @@ type BasicStrategy struct {
 	waitingN                   int32
 	closedTrades               []*Trade
 	currentTrade               *Trade
-	Ticks                      marketdata.TickArray
-	Candles                    marketdata.CandleArray
+	Ticks                      TickArray
+	Candles                    CandleArray
 	lastCandleOpen             float64
 	lastCandleOpenTime         time.Time
 	userStrategy               IUserStrategy
@@ -86,7 +86,10 @@ type BasicStrategy struct {
 
 func (b *BasicStrategy) shutDown() {
 	b.handlersWaitGroup.Wait()
+}
 
+func (b *BasicStrategy) getInstrument() *Instrument{
+	return b.symbol
 }
 func (b *BasicStrategy) init(ch CoreStrategyChannels) {
 	if !ch.isValid() {
@@ -148,7 +151,7 @@ func (b *BasicStrategy) NewLimitOrder(price float64, side OrderSide, qty int64, 
 	order := Order{
 		Side:        side,
 		Qty:         qty,
-		Symbol:      b.symbol,
+		Ticker:      b.symbol,
 		Price:       price,
 		State:       NewOrder,
 		Type:        LimitOrder,
@@ -167,7 +170,7 @@ func (b *BasicStrategy) NewMarketOrder(side OrderSide, qty int64, tif OrderTIF, 
 	order := Order{
 		Side:        side,
 		Qty:         qty,
-		Symbol:      b.symbol,
+		Ticker:      b.symbol,
 		Price:       math.NaN(),
 		State:       NewOrder,
 		Type:        MarketOrder,
@@ -206,7 +209,7 @@ func (b *BasicStrategy) CancelOrder(ordID string) error {
 
 	cancelReq := OrderCancelRequestEvent{
 		OrdId:     ordID,
-		BaseEvent: be(b.mostRecentTime.Add(20*time.Microsecond), b.currentTrade.ConfirmedOrders[ordID].Symbol),
+		BaseEvent: be(b.mostRecentTime.Add(20*time.Microsecond), b.currentTrade.ConfirmedOrders[ordID].Ticker),
 	}
 
 	reqID := "$CAN$" + ordID
@@ -336,7 +339,7 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 			b.mostRecentTime = e.getTime()
 		}
 
-		if !b.candleIsValid(e.Candle) || e.Candle == nil {
+		if e.Candle == nil || !e.Candle.isValid() {
 			return
 		}
 
@@ -410,13 +413,13 @@ func (b *BasicStrategy) onCandleHistoryHandler(e *CandlesHistoryEvent) {
 
 	allCandles := append(b.Candles, e.Candles...)
 	listedCandleTimes := make(map[time.Time]struct{})
-	var checkedCandles marketdata.CandleArray
+	var checkedCandles CandleArray
 
 	for _, v := range allCandles {
 		if v == nil {
 			continue
 		}
-		if !b.candleIsValid(v) {
+		if !v.isValid() {
 			continue
 		}
 		if _, ok := listedCandleTimes[v.Datetime]; ok {
@@ -456,7 +459,7 @@ func (b *BasicStrategy) onTickHandler(e *NewTickEvent) {
 		if e == nil {
 			return
 		}
-		if !b.tickIsValid(e.Tick) {
+		if !e.Tick.IsValid() {
 			return
 		}
 
@@ -506,13 +509,13 @@ func (b *BasicStrategy) onTickHistoryHandler(e *TickHistoryEvent) {
 
 	allTicks := append(b.Ticks, e.Ticks...)
 
-	var checkedTicks marketdata.TickArray
+	var checkedTicks TickArray
 
 	for _, v := range allTicks {
 		if v == nil {
 			continue
 		}
-		if !b.tickIsValid(v) {
+		if !v.IsValid() {
 			continue
 		}
 
@@ -541,7 +544,7 @@ func (b *BasicStrategy) onOrderFillHandler(e *OrderFillEvent) {
 		b.mostRecentTime = e.getTime()
 	}
 
-	if e.Symbol != b.symbol {
+	if e.Ticker != b.symbol {
 		b.newError(errors.New("Mismatch symbols in fill event and position. "))
 	}
 
@@ -709,7 +712,7 @@ func (b *BasicStrategy) newSignal(e event) {
 }
 
 func (b *BasicStrategy) newOrder(order *Order) error {
-	if order.Symbol != b.symbol {
+	if order.Ticker != b.symbol {
 		return errors.New("Can't put new order. Strategy symbol and order symbol are different. ")
 	}
 	if order.Id == "" {
@@ -719,7 +722,7 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 	if !order.isValid() {
 		return errors.New("Order is not valid. ")
 	}
-	order.Id = b.symbol + "|" + string(order.Side) + "|" + order.Id
+	order.Id = b.symbol.Symbol + "|" + string(order.Side) + "|" + order.Id
 
 	err := b.currentTrade.putNewOrder(order)
 
@@ -729,7 +732,7 @@ func (b *BasicStrategy) newOrder(order *Order) error {
 	}
 	ordEvent := NewOrderEvent{
 		LinkedOrder: order,
-		BaseEvent:   be(b.mostRecentTime, order.Symbol),
+		BaseEvent:   be(b.mostRecentTime, order.Ticker),
 	}
 
 	reqID := "$NO$" + order.Id
@@ -752,7 +755,7 @@ func (b *BasicStrategy) notifyPortfolioAboutPosition(e *PortfolioNewPositionEven
 }
 
 func (b *BasicStrategy) enableEventLogging() {
-	pth := path.Join("./StrategyLogs", b.symbol+".txt")
+	pth := path.Join("./StrategyLogs", b.symbol.Symbol+".txt")
 	f, err := os.OpenFile(pth, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		panic(err)
@@ -776,7 +779,7 @@ func (b *BasicStrategy) sendEventForLogging(e event) {
 	}
 }
 
-func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {
+func (b *BasicStrategy) putNewCandle(candle *Candle) {
 	if candle == nil {
 		return
 	}
@@ -803,7 +806,7 @@ func (b *BasicStrategy) putNewCandle(candle *marketdata.Candle) {
 	return
 }
 
-func (b *BasicStrategy) putNewTick(tick *marketdata.Tick) {
+func (b *BasicStrategy) putNewTick(tick *Tick) {
 	if tick == nil {
 		return
 	}
@@ -838,24 +841,14 @@ func (b *BasicStrategy) updateLastCandleOpen() {
 
 }
 
-func (b *BasicStrategy) ticks() marketdata.TickArray {
+func (b *BasicStrategy) ticks() TickArray {
 	return b.Ticks
 }
 
-func (b *BasicStrategy) candles() marketdata.CandleArray {
+func (b *BasicStrategy) candles() CandleArray {
 	return b.Candles
 }
 
-func (b *BasicStrategy) tickIsValid(t *marketdata.Tick) bool {
-	if t == nil {
-		return false
-	}
-	if !t.HasTrade() && !t.HasQuote() {
-		return false
-	}
-	return true
-}
 
-func (b *BasicStrategy) candleIsValid(c *marketdata.Candle) bool {
-	return true
-}
+
+

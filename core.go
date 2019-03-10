@@ -24,7 +24,6 @@ func createDirIfNotExists(dirPath string) error {
 }
 
 type Engine struct {
-	symbols       []string
 	broker        IBroker
 	md            IMarketData
 	strategiesMap map[string]ICoreStrategy
@@ -56,20 +55,11 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 	portfolioChan := make(chan *PortfolioNewPositionEvent, 5)
 	portfolio := newPortfolio()
 
-	var symbols []string
-	for k := range sp {
-		symbols = append(symbols, k)
-	}
+	var tickers []*Instrument
 
 	events := make(chan event, 500)
 
-	broker.Init(errChan, events, symbols)
-
-	syncGroupMap := make(map[string]*sync.WaitGroup)
-
-	for _, k := range symbols {
-		syncGroupMap[k] = &sync.WaitGroup{}
-
+	for k := range sp {
 		cc := CoreStrategyChannels{
 			errors:    errChan,
 			events:    events,
@@ -82,13 +72,15 @@ func NewEngine(sp map[string]ICoreStrategy, broker IBroker, md IMarketData, mode
 			sp[k].enableEventLogging()
 		}
 
+		tickers = append(tickers, sp[k].getInstrument())
+
 	}
 
+	broker.Init(errChan, events, tickers)
 	mdChan := make(chan event)
 	md.Init(errChan, mdChan)
-	md.SetSymbols(symbols)
+	md.SetSymbols(tickers)
 	eng := Engine{
-		symbols:        symbols,
 		broker:         broker,
 		md:             md,
 		events:         events,
@@ -153,7 +145,7 @@ func (c *Engine) eCandleOpen(e *CandleOpenEvent) {
 	if c.broker.IsSimulated() {
 		c.broker.Notify(e)
 	}
-	st := c.getSymbolStrategy(e.Symbol)
+	st := c.getSymbolStrategy(e.Ticker.Symbol)
 	st.notify(e)
 }
 
@@ -161,7 +153,7 @@ func (c *Engine) eCandleClose(e *CandleCloseEvent) {
 	if c.broker.IsSimulated() {
 		c.broker.Notify(e)
 	}
-	st := c.getSymbolStrategy(e.Symbol)
+	st := c.getSymbolStrategy(e.Ticker.Symbol)
 	st.notify(e)
 }
 
@@ -184,7 +176,7 @@ func (c *Engine) eCandleHistory(e *CandlesHistoryEvent) {
 }
 
 func (c *Engine) eTickHistory(e *TickHistoryEvent) {
-	st := c.getSymbolStrategy(e.Symbol)
+	st := c.getSymbolStrategy(e.Ticker.Symbol)
 	st.notify(e)
 }
 

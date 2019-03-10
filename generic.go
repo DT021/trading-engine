@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"alex/marketdata"
 	"fmt"
 	"github.com/pkg/errors"
 	"math"
@@ -69,11 +70,44 @@ func (t *TimeOfDay) Before(datetime time.Time) bool {
 	return false
 }
 
+type Instrument struct {
+	Symbol   string
+	Exchange Exchange
+	MinTick  float64
+	LotSize  int64
+}
+
+type Exchange struct {
+	Name            string
+	MarketOpenTime  TimeOfDay
+	MarketCloseTime TimeOfDay
+}
+
+type Tick struct {
+	*marketdata.Tick
+	Ticker *Instrument
+}
+
+
+
+type TickArray []*Tick
+
+type Candle struct {
+	*marketdata.Candle
+	Ticker *Instrument
+}
+
+func (c *Candle) isValid() bool {
+	return true // TODO
+}
+
+type CandleArray []*Candle
+
 type Order struct {
 	Side        OrderSide
 	Qty         int64
 	ExecQty     int64
-	Symbol      string
+	Ticker      *Instrument
 	State       OrderState
 	Price       float64
 	ExecPrice   float64
@@ -95,7 +129,7 @@ func (o *Order) isValid() bool {
 	if string(o.Destination) == "" {
 		return false
 	}
-	if o.Symbol == "" {
+	if o.Ticker == nil || o.Ticker.Symbol == "" {
 		return false
 	}
 
@@ -227,8 +261,8 @@ type TradeReturn struct {
 	Time      time.Time
 }
 
-func newFlatTrade(symbol string) *Trade {
-	trade := Trade{Symbol: symbol, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(),
+func newFlatTrade(ticker *Instrument) *Trade {
+	trade := Trade{Ticker: ticker, Qty: 0, Type: FlatTrade, OpenPrice: math.NaN(),
 		ClosedPnL: 0, OpenPnL: 0, FilledOrders: make(map[string]*Order), CanceledOrders: make(map[string]*Order),
 		NewOrders: make(map[string]*Order), ConfirmedOrders: make(map[string]*Order), RejectedOrders: make(map[string]*Order),
 		AllOrdersIDMap: make(map[string]struct{})}
@@ -237,7 +271,7 @@ func newFlatTrade(symbol string) *Trade {
 }
 
 type Trade struct {
-	Symbol      string
+	Ticker      *Instrument
 	Qty         int64
 	Type        TradeType
 	FirstPrice  float64
@@ -290,7 +324,7 @@ func (t *Trade) putNewOrder(o *Order) error {
 	if !o.isValid() {
 		return errors.New("Trying to put invalid order")
 	}
-	if o.Symbol != t.Symbol {
+	if o.Ticker != t.Ticker {
 		return errors.New("Can't put new order. Trade and Order have different symbols")
 	}
 	if o.State != NewOrder {
@@ -471,7 +505,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := newFlatTrade(t.Symbol)
+					newTrade := newFlatTrade(t.Ticker)
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
 
@@ -491,7 +525,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := Trade{Symbol: t.Symbol, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: LongTrade}
+					newTrade := Trade{Ticker: t.Ticker, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: LongTrade}
 					newTrade.OpenPrice = execPrice
 					newTrade.OpenValue = newTrade.OpenPrice * float64(newTrade.Qty)
 					newTrade.MarketValue = newTrade.OpenValue
@@ -537,7 +571,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := newFlatTrade(t.Symbol)
+					newTrade := newFlatTrade(t.Ticker)
 					newTrade.NewOrders = t.NewOrders
 					newTrade.ConfirmedOrders = t.ConfirmedOrders
 
@@ -557,7 +591,7 @@ func (t *Trade) executeOrder(id string, qty int64, execPrice float64, datetime t
 					t.Type = ClosedTrade
 					t.CloseTime = datetime
 
-					newTrade := Trade{Symbol: t.Symbol, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: ShortTrade}
+					newTrade := Trade{Ticker: t.Ticker, Qty: newQty, Id: order.Id, OpenTime: datetime, Type: ShortTrade}
 					newTrade.OpenPrice = execPrice
 					newTrade.OpenValue = newTrade.OpenPrice * float64(newTrade.Qty)
 					newTrade.MarketValue = newTrade.OpenValue

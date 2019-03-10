@@ -41,7 +41,7 @@ func (t *TimerEventProducer) Run() {
 		for {
 			select {
 			case e := <-tickChan.C:
-				te := TimerTickEvent{be(e, "All")}
+				te := TimerTickEvent{be(e, &Instrument{})}
 				go t.newEvent(&te)
 			case <-t.stopChan:
 				tickChan.Stop()

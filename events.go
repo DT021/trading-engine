@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"alex/marketdata"
 	"fmt"
 	"strconv"
 	"time"
@@ -16,11 +15,11 @@ type event interface {
 
 type BaseEvent struct {
 	Time   time.Time
-	Symbol string
+	Ticker *Instrument
 }
 
 func (c *BaseEvent) getSymbol() string {
-	return c.Symbol
+	return c.Ticker.Symbol
 }
 
 func (c *BaseEvent) getTime() time.Time {
@@ -35,8 +34,8 @@ func (c *BaseEvent) String() string {
 	return fmt.Sprintf("%v %v", c.getTime(), "Base Event")
 }
 
-func be(datetime time.Time, symbol string) BaseEvent {
-	b := BaseEvent{Time: datetime, Symbol: symbol}
+func be(datetime time.Time, symbol *Instrument) BaseEvent {
+	b := BaseEvent{Time: datetime, Ticker: symbol}
 	return b
 }
 
@@ -57,7 +56,7 @@ func (c *CandleOpenEvent) String() string {
 
 type CandleCloseEvent struct {
 	BaseEvent
-	Candle    *marketdata.Candle
+	Candle    *Candle
 	TimeFrame string
 }
 
@@ -96,7 +95,7 @@ func (c *CandleCloseEvent) String() string {
 
 type CandlesHistoryEvent struct {
 	BaseEvent
-	Candles marketdata.CandleArray
+	Candles CandleArray
 }
 
 func (c *CandlesHistoryEvent) getName() string {
@@ -109,7 +108,7 @@ func (c *CandlesHistoryEvent) String() string {
 
 type NewTickEvent struct {
 	BaseEvent
-	Tick *marketdata.Tick
+	Tick *Tick
 }
 
 func (c *NewTickEvent) getName() string {
@@ -122,7 +121,7 @@ func (c *NewTickEvent) String() string {
 
 type TickHistoryEvent struct {
 	BaseEvent
-	Ticks marketdata.TickArray
+	Ticks TickArray
 }
 
 func (c *TickHistoryEvent) getName() string {
@@ -304,18 +303,6 @@ func (c *EndOfDataEvent) String() string {
 	return fmt.Sprintf("%v %v", c.getTime(), c.getName())
 }
 
-type BrokerNotifyEvent struct {
-	BaseEvent
-	InitialEvent event
-}
-
-func (c *BrokerNotifyEvent) getName() string {
-	return "BrokerNotifyEvent"
-}
-
-func (c *BrokerNotifyEvent) String() string {
-	return fmt.Sprintf("%v **%v** By event: %+v", c.getStringTime(), c.getName(), c.InitialEvent)
-}
 
 type PortfolioNewPositionEvent struct {
 	BaseEvent

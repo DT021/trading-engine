@@ -28,13 +28,13 @@ type IMarketData interface {
 	Run()
 	Connect()
 	Init(errChan chan error, mdChan chan event)
-	SetSymbols(symbols []string)
+	SetSymbols(symbols []*Instrument)
 	RequestHistoricalData(duration time.Duration)
 	ShutDown()
 }
 
 type BTM struct {
-	Symbols          []string
+	Symbols          []*Instrument
 	Folder           string
 	FromDate         time.Time
 	ToDate           time.Time
@@ -53,7 +53,7 @@ func (m *BTM) ShutDown() {
 	m.waitGroup.Wait()
 }
 
-func (m *BTM) SetSymbols(symbols []string) {
+func (m *BTM) SetSymbols(symbols []*Instrument) {
 	m.Symbols = symbols
 }
 
@@ -83,9 +83,13 @@ func (m *BTM) getFilename() (string, error) {
 	if len(m.Symbols) == 0 {
 		return "", errors.New("symbols len is zero")
 	}
-	sort.Strings(m.Symbols)
+	rawSymbols := make([]string, len(m.Symbols))
+	for i, s := range m.Symbols {
+		rawSymbols[i] = s.Symbol
+	}
+	sort.Strings(rawSymbols)
 	out := ""
-	for _, v := range m.Symbols {
+	for _, v := range rawSymbols {
 		out += v + ","
 	}
 
@@ -141,7 +145,7 @@ func (m *BTM) prepareCandles() {
 	}
 	var totalcandles marketdata.CandleArray
 	for _, s := range m.Symbols {
-		sc, err := m.Storage.GetStoredCandles(s, m.candlesTimeFrame, rng)
+		sc, err := m.Storage.GetStoredCandles(s.Symbol, m.candlesTimeFrame, rng)
 		if err != nil {
 			m.newError(err)
 		}
@@ -194,7 +198,7 @@ func (m *BTM) loadDateTicks(date time.Time) {
 		if m.mode == MarketDataModeTicksQuotes || m.mode == MarketDataModeQuotes {
 			loadQuotes = true
 		}
-		symbolTicks, err := m.Storage.GetStoredTicks(symbol, rng, loadQuotes, loadTicks)
+		symbolTicks, err := m.Storage.GetStoredTicks(symbol.Symbol, rng, loadQuotes, loadTicks)
 		if err != nil && symbolTicks != nil {
 			m.newError(err)
 			continue
@@ -314,7 +318,7 @@ func (m *BTM) Run() {
 		return
 	}
 
-	if m.mode == MarketDataModeCandles{
+	if m.mode == MarketDataModeCandles {
 		if m.histDataTimeBack > time.Minute {
 			m.waitGroup.Add(1)
 			go func() {
@@ -337,6 +341,16 @@ func (m *BTM) Run() {
 
 }
 
+func (m *BTM) getTickersMap() map[string]*Instrument {
+	tickersMap := make(map[string]*Instrument)
+
+	for _, s := range m.Symbols {
+		tickersMap[s.Symbol] = s
+	}
+
+	return tickersMap
+}
+
 func (m *BTM) genTickEvents() {
 	if !m.prepairedDataExists() {
 		panic("Can't genereate tick events. Prepaired data is not exists. ")
@@ -354,22 +368,29 @@ func (m *BTM) genTickEvents() {
 	}()
 
 	scanner := bufio.NewScanner(file)
+	tickersMap := m.getTickersMap()
 
 	for scanner.Scan() {
-		tick, err := m.parseLineToTick(scanner.Text())
+		tickRaw, err := m.parseLineToTick(scanner.Text())
 		if err != nil {
 			panic(err)
 		}
 
+		ticker := tickersMap[tickRaw.Symbol]
+		tick := Tick{
+			Tick:   tickRaw,
+			Ticker: ticker,
+		}
+
 		e := NewTickEvent{
-			Tick:      tick,
-			BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
+			Tick:      &tick,
+			BaseEvent: BaseEvent{Time: tick.Datetime, Ticker: ticker},
 		}
 
 		m.newEvent(&e)
 
 	}
-	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), &Instrument{})})
 
 }
 
@@ -389,22 +410,28 @@ func (m *BTM) genTickEventsWithHistory() {
 		}
 	}()
 
-	historyMap := make(map[string]marketdata.TickArray)
+	historyMap := make(map[string]TickArray)
 	historyLoaded := make(map[string]struct{})
 
 	scanner := bufio.NewScanner(file)
+	tickersMap := m.getTickersMap()
 
 	for scanner.Scan() {
-		tick, err := m.parseLineToTick(scanner.Text())
+		tickRaw, err := m.parseLineToTick(scanner.Text())
 		if err != nil {
 			panic(err)
+		}
+		ticker := tickersMap[tickRaw.Symbol]
+		tick := Tick{
+			Tick:   tickRaw,
+			Ticker: ticker,
 		}
 
 		//Put new tick event if we already got all history
 		if _, ok := historyLoaded[tick.Symbol]; ok {
 			e := NewTickEvent{
-				Tick:      tick,
-				BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
+				Tick:      &tick,
+				BaseEvent: BaseEvent{Time: tick.Datetime, Ticker: ticker},
 			}
 			m.newEvent(&e)
 			continue
@@ -415,32 +442,32 @@ func (m *BTM) genTickEventsWithHistory() {
 
 			delta := tick.Datetime.Sub(arr[0].Datetime)
 			if delta < m.histDataTimeBack {
-				historyMap[tick.Symbol] = append(historyMap[tick.Symbol], tick)
+				historyMap[tick.Symbol] = append(historyMap[tick.Symbol], &tick)
 
 			} else {
 				//Than put in chan history resp event
 				historyLoaded[tick.Symbol] = struct{}{}
 				historyEvent := TickHistoryEvent{
-					BaseEvent: be(arr[len(arr)-1].Datetime, tick.Symbol),
+					BaseEvent: be(arr[len(arr)-1].Datetime, ticker),
 					Ticks:     historyMap[tick.Symbol],
 				}
 				m.newEvent(&historyEvent)
 
 				//First put out new tick event
 				e := NewTickEvent{
-					Tick:      tick,
-					BaseEvent: BaseEvent{Time: tick.Datetime, Symbol: tick.Symbol},
+					Tick:      &tick,
+					BaseEvent: BaseEvent{Time: tick.Datetime, Ticker: ticker},
 				}
 				m.newEvent(&e)
 
 			}
 		} else {
-			historyMap[tick.Symbol] = marketdata.TickArray{tick}
+			historyMap[tick.Symbol] = TickArray{&tick}
 
 		}
 
 	}
-	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), &Instrument{})})
 
 }
 
@@ -462,17 +489,19 @@ func (m *BTM) genCandlesEvents() {
 
 	scanner := bufio.NewScanner(file)
 	var candleCloses []*CandleCloseEvent
+	tickersMap := m.getTickersMap()
 
 	for scanner.Scan() {
-		c, err := m.parseLineToCandle(scanner.Text())
+		cRaw, err := m.parseLineToCandle(scanner.Text())
 		if err != nil {
 			panic(err)
 		}
 
+		ticker := tickersMap[cRaw.Symbol]
 		e := CandleOpenEvent{
-			BaseEvent:  be(c.Datetime, c.Symbol),
-			CandleTime: c.Datetime,
-			Price:      c.Open,
+			BaseEvent:  be(cRaw.Datetime, ticker),
+			CandleTime: cRaw.Datetime,
+			Price:      cRaw.Open,
 			TimeFrame:  m.candlesTimeFrame,
 		}
 
@@ -486,9 +515,14 @@ func (m *BTM) genCandlesEvents() {
 
 		m.newEvent(&e)
 
+		c := Candle{
+			Candle: cRaw,
+			Ticker: ticker,
+		}
+
 		ce := CandleCloseEvent{
-			BaseEvent: be(c.Datetime, c.Symbol),
-			Candle:    c,
+			BaseEvent: be(cRaw.Datetime, ticker),
+			Candle:    &c,
 			TimeFrame: m.candlesTimeFrame,
 		}
 		ce.setEventTimeFromCandle()
@@ -501,7 +535,7 @@ func (m *BTM) genCandlesEvents() {
 			m.newEvent(pce)
 		}
 	}
-	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), &Instrument{})})
 
 }
 
@@ -523,22 +557,30 @@ func (m *BTM) genCandlesEventsWithHistory() {
 
 	scanner := bufio.NewScanner(file)
 
-	historyMap := make(map[string]marketdata.CandleArray)
+	historyMap := make(map[string]CandleArray)
 	historyLoaded := make(map[string]struct{})
 
 	var candleCloses []*CandleCloseEvent
+	tickersMap := m.getTickersMap()
 
 	for scanner.Scan() {
-		c, err := m.parseLineToCandle(scanner.Text())
+		cRaw, err := m.parseLineToCandle(scanner.Text())
 		if err != nil {
 			panic(err)
 		}
 
-		if _, ok := historyLoaded[c.Symbol]; ok {
+		ticker := tickersMap[cRaw.Symbol]
+
+		c := &Candle{
+			Candle: cRaw,
+			Ticker: ticker,
+		}
+
+		if _, ok := historyLoaded[cRaw.Symbol]; ok {
 			e := CandleOpenEvent{
-				BaseEvent:  be(c.Datetime, c.Symbol),
-				CandleTime: c.Datetime,
-				Price:      c.Open,
+				BaseEvent:  be(cRaw.Datetime, ticker),
+				CandleTime: cRaw.Datetime,
+				Price:      cRaw.Open,
 				TimeFrame:  m.candlesTimeFrame,
 			}
 
@@ -553,7 +595,7 @@ func (m *BTM) genCandlesEventsWithHistory() {
 			m.newEvent(&e)
 
 			ce := CandleCloseEvent{
-				BaseEvent: be(c.Datetime, c.Symbol),
+				BaseEvent: be(cRaw.Datetime, ticker),
 				Candle:    c,
 				TimeFrame: m.candlesTimeFrame,
 			}
@@ -562,26 +604,26 @@ func (m *BTM) genCandlesEventsWithHistory() {
 			continue
 		}
 
-		if arr, ok := historyMap[c.Symbol]; ok {
+		if arr, ok := historyMap[cRaw.Symbol]; ok {
 
-			delta := c.Datetime.Sub(arr[0].Datetime)
+			delta := cRaw.Datetime.Sub(arr[0].Datetime)
 			if delta < m.histDataTimeBack {
-				historyMap[c.Symbol] = append(historyMap[c.Symbol], c)
+				historyMap[cRaw.Symbol] = append(historyMap[cRaw.Symbol], c)
 
 			} else {
 				//Than put in chan history resp event
-				historyLoaded[c.Symbol] = struct{}{}
+				historyLoaded[cRaw.Symbol] = struct{}{}
 				historyEvent := CandlesHistoryEvent{
-					BaseEvent: be(arr[len(arr)-1].Datetime, c.Symbol),
-					Candles:   historyMap[c.Symbol],
+					BaseEvent: be(arr[len(arr)-1].Datetime, ticker),
+					Candles:   historyMap[cRaw.Symbol],
 				}
 				m.newEvent(&historyEvent)
 
 				//First put out new tick event
 				e := CandleOpenEvent{
-					BaseEvent:  be(c.Datetime, c.Symbol),
-					CandleTime: c.Datetime,
-					Price:      c.Open,
+					BaseEvent:  be(cRaw.Datetime, ticker),
+					CandleTime: cRaw.Datetime,
+					Price:      cRaw.Open,
 					TimeFrame:  m.candlesTimeFrame,
 				}
 
@@ -595,7 +637,7 @@ func (m *BTM) genCandlesEventsWithHistory() {
 				m.newEvent(&e)
 
 				ce := CandleCloseEvent{
-					BaseEvent: be(c.Datetime, c.Symbol),
+					BaseEvent: be(cRaw.Datetime, ticker),
 					Candle:    c,
 					TimeFrame: m.candlesTimeFrame,
 				}
@@ -604,7 +646,7 @@ func (m *BTM) genCandlesEventsWithHistory() {
 
 			}
 		} else {
-			historyMap[c.Symbol] = marketdata.CandleArray{c}
+			historyMap[cRaw.Symbol] = CandleArray{c}
 
 		}
 
@@ -615,7 +657,7 @@ func (m *BTM) genCandlesEventsWithHistory() {
 			m.newEvent(pce)
 		}
 	}
-	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), "-")})
+	m.newEvent(&EndOfDataEvent{BaseEvent: be(time.Now(), &Instrument{})})
 
 }
 
@@ -695,7 +737,6 @@ func (m *BTM) parseLineToCandle(l string) (*marketdata.Candle, error) {
 	}
 	tm := time.Unix(i, 0)
 
-
 	symbol := ls[1]
 
 	open, err := strconv.ParseFloat(ls[2], 64)
@@ -735,7 +776,7 @@ func (m *BTM) parseLineToCandle(l string) (*marketdata.Candle, error) {
 
 	c := marketdata.Candle{
 		Datetime:     tm,
-		Symbol: symbol,
+		Symbol:       symbol,
 		Open:         open,
 		High:         high,
 		Low:          low,

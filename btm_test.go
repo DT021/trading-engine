@@ -24,9 +24,23 @@ func TestMockStorageJSON_GetStoredCandles(t *testing.T) {
 func TestBTM_getFilename(t *testing.T) {
 	m := BTM{}
 
-	symbols1 := []string{"S1", "S2", "S#"}
-	symbols2 := []string{"S2", "S1", "S#"}
-	symbols3 := []string{"S1", "S4", "S#"}
+	symbols1 := []*Instrument{
+		{Symbol: "S1"},
+		{Symbol: "S2"},
+		{Symbol: "S#"},
+	}
+
+	symbols2 := []*Instrument{
+		{Symbol: "S2"},
+		{Symbol: "S1"},
+		{Symbol: "S#"},
+	}
+
+	symbols3 := []*Instrument{
+		{Symbol: "S1"},
+		{Symbol: "S4"},
+		{Symbol: "S#"},
+	}
 
 	m.Symbols = symbols1
 	f1, err := m.getFilename()
@@ -55,7 +69,7 @@ func TestBTM_getFilename(t *testing.T) {
 }
 
 func newTestBTMforTicks() *BTM {
-	testSymbols := []string{
+	testSymbolsRaw := []string{
 		"Sym1",
 		"Sym2",
 		"Sym3",
@@ -64,6 +78,14 @@ func newTestBTMforTicks() *BTM {
 		"Sym6",
 		"Sym7",
 	}
+
+	testSymbols := make([]*Instrument, len(testSymbolsRaw))
+	for i, v := range testSymbolsRaw {
+		testSymbols[i] = &Instrument{
+			Symbol: v,
+		}
+	}
+
 	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)
 	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
 	storage := mockStorageJSON{folder: "./test_data/json_storage/ticks/quotes_trades"}
@@ -97,9 +119,12 @@ func newTestBTMforCandles() *BTM {
 		panic(err)
 	}
 
-	var testSymbols []string
+	var testSymbols []*Instrument
 	for _, f := range files {
-		testSymbols = append(testSymbols, strings.Split(f.Name(), ".")[0])
+		inst := &Instrument{
+			Symbol: strings.Split(f.Name(), ".")[0],
+		}
+		testSymbols = append(testSymbols, inst)
 	}
 	fromDate := time.Date(2018, 3, 2, 0, 0, 0, 0, time.UTC)
 	toDate := time.Date(2018, 3, 10, 0, 0, 0, 0, time.UTC)
@@ -242,7 +267,7 @@ func TestBTM_RunTicks(t *testing.T) {
 	{
 		b.RequestHistoricalData(2 * time.Second)
 		b.Run()
-		histResponses := make(map[string]marketdata.TickArray)
+		histResponses := make(map[string]TickArray)
 		tickEventsN := 0
 		histEventsN := 0
 		totalTicks := 0
@@ -254,19 +279,19 @@ func TestBTM_RunTicks(t *testing.T) {
 				case *NewTickEvent:
 					tickEventsN ++
 					totalTicks ++
-					if hist, ok := histResponses[i.Symbol]; ok {
+					if hist, ok := histResponses[i.Ticker.Symbol]; ok {
 						assert.False(t, i.Tick.Datetime.Before(hist[len(hist)-1].Datetime))
 					} else {
-						t.Errorf("Got NewTickEvent without history response for %v", i.Symbol)
+						t.Errorf("Got NewTickEvent without history response for %v", i.Ticker)
 					}
 				case *TickHistoryEvent:
 					histEventsN ++
-					_, ok := histResponses[i.Symbol]
+					_, ok := histResponses[i.Ticker.Symbol]
 					assert.False(t, ok)
-					histResponses[i.Symbol] = i.Ticks
+					histResponses[i.Ticker.Symbol] = i.Ticks
 					totalTicks += len(i.Ticks)
 					for n, tick := range i.Ticks {
-						assert.Equal(t, tick.Symbol, i.Symbol)
+						assert.Equal(t, tick.Symbol, i.Ticker)
 						if n == 0 {
 							continue
 						} else {
@@ -309,19 +334,19 @@ func TestBTM_RunCandles(t *testing.T) {
 			case e := <-b.mdChan:
 				switch i := e.(type) {
 				case *CandleOpenEvent:
-					if _, ok := symbolEventMap[i.Symbol]; ok {
-						assert.IsType(t, &CandleCloseEvent{}, symbolEventMap[i.Symbol])
-						assert.False(t, i.getTime().Before(symbolEventMap[i.Symbol].getTime()))
+					if _, ok := symbolEventMap[i.Ticker.Symbol]; ok {
+						assert.IsType(t, &CandleCloseEvent{}, symbolEventMap[i.Ticker.Symbol])
+						assert.False(t, i.getTime().Before(symbolEventMap[i.Ticker.Symbol].getTime()))
 					}
-					symbolEventMap[i.Symbol] = e
+					symbolEventMap[i.Ticker.Symbol] = e
 				case *CandleCloseEvent:
-					pe, ok := symbolEventMap[i.Symbol]
+					pe, ok := symbolEventMap[i.Ticker.Symbol]
 					assert.True(t, ok)
 					assert.IsType(t, &CandleOpenEvent{}, pe)
 					assert.True(t, i.getTime().After(pe.getTime()),
 						"Prev event time %v, event: %+v, Curr event time %v, event: %+v",
 						pe.getTime(), pe, i.getTime(), i)
-					symbolEventMap[i.Symbol] = e
+					symbolEventMap[i.Ticker.Symbol] = e
 				case *EndOfDataEvent:
 					break LOOP
 				default:
@@ -351,19 +376,19 @@ func TestBTM_RunCandles(t *testing.T) {
 				case *NewTickEvent:
 					tickEventsN ++
 					totalTicks ++
-					if hist, ok := histResponses[i.Symbol]; ok {
+					if hist, ok := histResponses[i.Ticker]; ok {
 						assert.False(t, i.Tick.Datetime.Before(hist[len(hist)-1].Datetime))
 					} else {
-						t.Errorf("Got NewTickEvent without history response for %v", i.Symbol)
+						t.Errorf("Got NewTickEvent without history response for %v", i.Ticker)
 					}
 				case *TickHistoryEvent:
 					histEventsN ++
-					_, ok := histResponses[i.Symbol]
+					_, ok := histResponses[i.Ticker]
 					assert.False(t, ok)
-					histResponses[i.Symbol] = i.Ticks
+					histResponses[i.Ticker] = i.Ticks
 					totalTicks += len(i.Ticks)
 					for n, tick := range i.Ticks {
-						assert.Equal(t, tick.Symbol, i.Symbol)
+						assert.Equal(t, tick.Ticker, i.Ticker)
 						if n == 0 {
 							continue
 						} else {

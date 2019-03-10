@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"alex/marketdata"
 	"bufio"
 	"github.com/stretchr/testify/assert"
 	"io/ioutil"
@@ -20,7 +19,7 @@ type DummyStrategyWithLogic struct {
 	markerId             string
 }
 
-func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *marketdata.Candle) {
+func (d *DummyStrategyWithLogic) OnCandleClose(b *BasicStrategy, candle *Candle) {
 	if d.markerId == "" {
 		id, err := b.NewLimitOrder(candle.Close-0.05, OrderBuy, 200, GTCTIF, "ARCA")
 		if err != nil {
@@ -42,7 +41,7 @@ func (d *DummyStrategyWithLogic) OnCandleOpen(b *BasicStrategy, price float64) {
 
 }
 
-func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick) {
+func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *Tick) {
 	if len(b.currentTrade.AllOrdersIDMap) == 0 && tick.LastPrice > 20 {
 		price := tick.LastPrice - 0.5
 		_, err := b.NewLimitOrder(price, OrderSell, 100, GTCTIF, "ARCA")
@@ -102,7 +101,7 @@ func (d *DummyStrategyWithLogic) OnTick(b *BasicStrategy, tick *marketdata.Tick)
 
 }
 
-func newTestStrategyWithLogic(symbol string) *BasicStrategy {
+func newTestStrategyWithLogic(symbol *Instrument) *BasicStrategy {
 	st := DummyStrategyWithLogic{}
 	bs := BasicStrategy{
 		symbol:       symbol,
@@ -135,10 +134,13 @@ func newTestLargeBTMTick(folder string) *BTM {
 		panic(err)
 	}
 
-	var testSymbols []string
+	var testSymbols []*Instrument
 	for _, f := range files {
 		if f.IsDir() && !strings.HasPrefix(f.Name(), ".") {
-			testSymbols = append(testSymbols, f.Name())
+			inst := &Instrument{
+				Symbol:f.Name(),
+			}
+			testSymbols = append(testSymbols, inst)
 		}
 	}
 
@@ -394,8 +396,8 @@ func testEngineRun(t *testing.T, md *BTM, txtLogs bool) {
 		for _, s := range md.Symbols {
 			st := newTestStrategyWithLogic(s)
 			st.enableEventSliceStorage()
-			eventWritesMap[s] = &st.eventsLoggingSlice
-			strategyMap[s] = st
+			eventWritesMap[s.Symbol] = &st.eventsLoggingSlice
+			strategyMap[s.Symbol] = st
 
 		}
 

@@ -10,7 +10,7 @@ import (
 
 func newTestOrder(price float64, side OrderSide, qty int64, id string) *Order {
 	o := Order{
-		Symbol:      "Test",
+		Ticker:      newTestInstrument(),
 		Qty:         qty,
 		Side:        side,
 		Id:          id,
@@ -146,7 +146,7 @@ func TestOrder_addExecution(t *testing.T) {
 }
 
 func TestTrade_OrdersFlow(t *testing.T) {
-	trade := Trade{Symbol: "Test"}
+	trade := Trade{Ticker: newTestInstrument()}
 	t.Log("Put new order")
 	{
 
@@ -171,9 +171,9 @@ func TestTrade_OrdersFlow(t *testing.T) {
 
 		assert.Equal(t, 1, len(trade.NewOrders))
 
-		//o = Order{Symbol: "Test2", Id: "55", State: newOrder}
+		//o = Order{Ticker: "Test2", Id: "55", State: newOrder}
 		o = newTestOrder(20, OrderBuy, 100, "55")
-		o.Symbol = "Test2"
+		o.Ticker.Symbol = "Test2"
 		err = trade.putNewOrder(o)
 		if err != nil {
 			t.Fatal(err)
@@ -325,7 +325,7 @@ func TestTrade_OrdersFlow(t *testing.T) {
 }
 
 func TestTrade_OrdersExecution(t *testing.T) {
-	trade := newFlatTrade("Test")
+	trade := newFlatTrade(newTestInstrument())
 
 	t.Log("Add few valid orders - long and short")
 	{
@@ -694,7 +694,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 	t.Log("Check id, first price")
 	{
 		execTime := time.Now()
-		trade = newFlatTrade("Test")
+		trade = newFlatTrade(newTestInstrument())
 		err := trade.putNewOrder(newTestOrder(10, OrderSell, 100, "22"))
 		if err != nil {
 			t.Fatal(err)
@@ -718,7 +718,7 @@ func TestTrade_OrdersExecution(t *testing.T) {
 func TestTrade_PartialFillAndReverse(t *testing.T) {
 	// Test case when we have partial fill and get new position with partial filled order
 
-	trade := newFlatTrade("Test")
+	trade := newFlatTrade(newTestInstrument())
 	t.Log("Add, confirm valid order and execute it. Trade should be LONG")
 	{
 		err := trade.putNewOrder(newTestOrder(20, OrderBuy, 200, "1"))
@@ -790,7 +790,7 @@ func TestTrade_PartialFillAndReverse(t *testing.T) {
 }
 
 func TestTrade_updatePnL(t *testing.T) {
-	trade := newFlatTrade("Test")
+	trade := newFlatTrade(newTestInstrument())
 
 	t.Log("Add execution to a trade")
 	{
@@ -880,7 +880,7 @@ func TestTrade_updatePnL(t *testing.T) {
 
 	t.Log("Create long trade and check updates")
 	{
-		trade = newFlatTrade("Test")
+		trade = newFlatTrade(newTestInstrument())
 		err := trade.putNewOrder(newTestOrder(10, OrderBuy, 100, "1"))
 		if err != nil {
 			t.Fatal(err)
