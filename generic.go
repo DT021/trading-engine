@@ -107,6 +107,14 @@ func (c *Candle) isValid() bool {
 	return true // TODO
 }
 
+func (c *Candle) isOpening() bool{
+	e := c.Ticker.Exchange
+	if c.Datetime.Hour() == e.MarketOpenTime.Hour && c.Datetime.Minute() == e.MarketOpenTime.Minute{
+		return true
+	}
+	return false
+}
+
 type CandleArray []*Candle
 
 type Order struct {

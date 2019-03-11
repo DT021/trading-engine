@@ -250,6 +250,46 @@ errorsLoop:
 
 }
 
+func putOrderAndFillOnCandleClose(b *simBrokerWorker, order *simBrokerOrder, e *CandleCloseEvent) ([]event, []error) {
+
+	b.orders[order.Id] = order
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		b.onCandleClose(e)
+		wg.Done()
+	}()
+	var events []event
+	var errors []error
+eventloop:
+	for {
+		select {
+		case e := <-b.events:
+			switch e.(type) {
+			case *CandleCloseEvent:
+				continue
+			}
+			events = append(events, e)
+		case <-time.After(30 * time.Millisecond):
+			break eventloop
+		}
+	}
+
+errorsLoop:
+	for {
+		select {
+		case e := <-b.errChan:
+			errors = append(errors, e)
+		case <-time.After(30 * time.Millisecond):
+			break errorsLoop
+		}
+	}
+	wg.Wait()
+	delete(b.orders, order.Id)
+	return events, errors
+
+}
+
 func TestSimulatedBroker_OnCancelRequest(t *testing.T) {
 	b := newTestSimBrokerWorker()
 
@@ -456,7 +496,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 					switch v.(type) {
 					case *OrderFillEvent:
-						t.Log("OK! Got OrderFillEvent as expected")
+
 						assert.Equal(t, 20.01, v.(*OrderFillEvent).Price)
 						assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 						assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -503,7 +543,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 19.95, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -539,7 +579,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 21.05, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -575,7 +615,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 20.01, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(200), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -607,7 +647,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 19.98, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -646,7 +686,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 20.09, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(600), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -677,7 +717,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 20.05, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(300), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -783,7 +823,7 @@ func TestSimulatedBroker_fillMarketOnTick(t *testing.T) {
 
 				switch v.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, 20.01, v.(*OrderFillEvent).Price)
 					assert.Equal(t, int64(100), v.(*OrderFillEvent).Qty)
 					assert.Equal(t, order.Id, v.(*OrderFillEvent).OrdId)
@@ -949,7 +989,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1003,7 +1043,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 					switch i := events[0].(type) {
 					case *OrderFillEvent:
-						t.Log("OK! Got OrderFillEvent as expected")
+
 						assert.Equal(t, order.Price, i.Price)
 						assert.Equal(t, int64(100), i.Qty)
 						assert.Equal(t, order.Id, i.OrdId)
@@ -1033,7 +1073,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 					switch i := events[0].(type) {
 					case *OrderFillEvent:
-						t.Log("OK! Got OrderFillEvent as expected")
+
 						assert.Equal(t, order.Price, i.Price)
 						assert.Equal(t, int64(100), i.Qty)
 						assert.Equal(t, order.Id, i.OrdId)
@@ -1086,7 +1126,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1123,7 +1163,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1155,7 +1195,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1193,7 +1233,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1242,7 +1282,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 					switch i := events[0].(type) {
 					case *OrderFillEvent:
-						t.Log("OK! Got OrderFillEvent as expected")
+
 						assert.Equal(t, order.Price, i.Price)
 						assert.Equal(t, int64(100), i.Qty)
 						assert.Equal(t, order.Id, i.OrdId)
@@ -1270,7 +1310,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 					switch i := events[0].(type) {
 					case *OrderFillEvent:
-						t.Log("OK! Got OrderFillEvent as expected")
+
 						assert.Equal(t, order.Price, i.Price)
 						assert.Equal(t, int64(100), i.Qty)
 						assert.Equal(t, order.Id, i.OrdId)
@@ -1327,7 +1367,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1362,7 +1402,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1391,7 +1431,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(200), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1421,7 +1461,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(100), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1447,7 +1487,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, order.Price, i.Price)
 					assert.Equal(t, int64(100), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -1485,7 +1525,7 @@ func TestSimulatedBroker_fillLimitOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, order.Price, i.Price)
 				assert.Equal(t, int64(200), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1646,7 +1686,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(200), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1682,7 +1722,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.AskPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1762,7 +1802,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.AskPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1795,7 +1835,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(200), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1821,7 +1861,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(300), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1857,7 +1897,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(200), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1892,7 +1932,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.BidPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -1973,7 +2013,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.BidPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2006,7 +2046,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(200), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2032,7 +2072,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, int64(300), i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2069,7 +2109,7 @@ func TestSimulatedBroker_fillStopOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.AskPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2145,7 +2185,7 @@ func TestSimulatedBroker_fillMooOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2275,7 +2315,7 @@ func TestSimulatedBroker_fillMooOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2341,7 +2381,7 @@ func TestSimulatedBroker_fillMocOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2402,7 +2442,7 @@ func TestSimulatedBroker_fillMocOnTick(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2501,7 +2541,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2534,7 +2574,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderCancelEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, order.Id, i.OrdId)
 			default:
 				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
@@ -2603,7 +2643,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, tick.LastPrice, i.Price)
 					assert.Equal(t, order.Qty, i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -2638,7 +2678,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			for _, e := range events {
 				switch i := e.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, tick.LastPrice, i.Price)
 					assert.Equal(t, int64(389), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -2677,7 +2717,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -2776,7 +2816,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 
 				switch i := events[0].(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, tick.LastPrice, i.Price)
 					assert.Equal(t, order.Qty, i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -2812,7 +2852,7 @@ func TestSimulatedBroker_checkOnTickLimitAuction(t *testing.T) {
 			for _, e := range events {
 				switch i := e.(type) {
 				case *OrderFillEvent:
-					t.Log("OK! Got OrderFillEvent as expected")
+
 					assert.Equal(t, tick.LastPrice, i.Price)
 					assert.Equal(t, int64(378), i.Qty)
 					assert.Equal(t, order.Id, i.OrdId)
@@ -3109,7 +3149,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 		switch i := v.(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, order2.Price, i.Price)
 			assert.Equal(t, order2.Qty, i.Qty)
 			assert.Equal(t, order2.Id, i.OrdId)
@@ -3149,7 +3189,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 
 		switch i := v.(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, tick.LastPrice, i.Price)
 			assert.Equal(t, order5.Qty, i.Qty)
 			assert.Equal(t, order5.Id, i.OrdId)
@@ -3187,7 +3227,7 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 			assert.NotNil(t, v)
 			switch i := v.(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, tick.LastPrice, i.Price)
 				assert.Equal(t, order4.Qty, i.Qty)
 				assert.Equal(t, order4.Id, i.OrdId)
@@ -3257,7 +3297,7 @@ func TestSimBroker_fillMarketOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3317,7 +3357,7 @@ func TestSimBroker_fillMarketOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3348,7 +3388,7 @@ func TestSimBroker_fillMarketOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3384,7 +3424,7 @@ func TestSimBroker_fillLimitOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3415,7 +3455,7 @@ func TestSimBroker_fillLimitOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, order.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3522,7 +3562,7 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3553,7 +3593,7 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3636,7 +3676,7 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3672,7 +3712,7 @@ func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3736,7 +3776,7 @@ func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3771,7 +3811,7 @@ func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-			t.Log("OK! Got OrderFillEvent as expected")
+
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3896,7 +3936,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, coe.Price, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -3996,7 +4036,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, coe.Price, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -4070,7 +4110,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, coe.Price, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -4110,7 +4150,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderCancelEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, order.Id, i.OrdId)
 			default:
 				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
@@ -4148,7 +4188,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, coe.Price, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -4186,7 +4226,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderCancelEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, order.Id, i.OrdId)
 			default:
 				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
@@ -4222,7 +4262,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 			switch i := events[0].(type) {
 			case *OrderFillEvent:
-				t.Log("OK! Got OrderFillEvent as expected")
+
 				assert.Equal(t, coe.Price, i.Price)
 				assert.Equal(t, order.Qty, i.Qty)
 				assert.Equal(t, order.Id, i.OrdId)
@@ -4335,5 +4375,408 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 
 	testLimitSide(OrderBuy)
 	testLimitSide(OrderSell)
+
+}
+
+func newTestCandleCloseEvent(o float64, h float64, l float64, c float64, t time.Time, tf string) *CandleCloseEvent {
+	rawCandle := marketdata.Candle{
+		Open:     o,
+		High:     h,
+		Low:      l,
+		Close:    c,
+		Datetime: t,
+	}
+
+	candle := Candle{
+		Candle: &rawCandle,
+		Ticker: newTestInstrument(),
+	}
+
+	e := CandleCloseEvent{
+		BaseEvent: be(candle.Datetime, candle.Ticker),
+		Candle:    &candle,
+		TimeFrame: tf,
+	}
+
+	e.setEventTimeFromCandle()
+
+	return &e
+
+}
+
+func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
+
+	testSide := func(side OrderSide, tf string) {
+		b := newTestSimBrokerWorker()
+
+		if tf == "D" {
+			t.Logf("%v Normal execution GTC %v. Expected fill on Open price", side, tf)
+			{
+				order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+				order.Type = LimitOrder
+				assert.True(t, order.isValid())
+
+				o := order.Price - 0.02
+				if side == OrderSell {
+					o = order.Price + 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.05, order.Price,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+
+					assert.Equal(t, e.Candle.Open, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+		}
+
+		if tf != "D" {
+
+			t.Logf("%v Opening intraday candle. %v. Expected fill on Open price", side, tf)
+			{
+				order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+				order.Type = LimitOrder
+				assert.True(t, order.isValid())
+
+				o := order.Price - 0.07
+				if side == OrderSell {
+					o = order.Price + 0.07
+				}
+
+				e := newTestCandleCloseEvent(o, order.Price+0.16, order.Price-0.11, order.Price,
+					order.Time.Add(time.Second*2), tf)
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketOpenTime.Hour, order.Ticker.Exchange.MarketOpenTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, 1)
+				e.setEventTimeFromCandle()
+
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+
+					assert.Equal(t, e.Candle.Open, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+
+			t.Logf("%v Not opening intraday candle. %v. Expected fill on order price", side, tf)
+			{
+				order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+				order.Type = LimitOrder
+				assert.True(t, order.isValid())
+
+				o := order.Price - 0.07
+				if side == OrderSell {
+					o = order.Price + 0.07
+				}
+
+				e := newTestCandleCloseEvent(o, order.Price+0.16, order.Price-0.15, order.Price,
+					order.Time.Add(time.Second*2), tf)
+
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, 1)
+				e.setEventTimeFromCandle()
+
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+
+					assert.Equal(t, order.Price, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+
+		}
+
+		t.Logf("%v Normal execution GTC %v. Expected fill on order price", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.01
+			if side == OrderSell {
+				o = order.Price - 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.01, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Normal execution DayTif %v. Expected fill on order price", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.01
+			if side == OrderSell {
+				o = order.Price - 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.01, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Normal execution GTC %v. Order time after candle open time. Expect fill on order price", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.01
+			if side == OrderSell {
+				o = order.Price + 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.06, order.Price,
+				order.Time.Add(-time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Normal execution GTC %v. Order time after candle open time. Expect no fills. "+
+			"Candle HL equal open price", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.01
+			if side == OrderSell {
+				o = order.Price + 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, o, o, order.Price,
+				order.Time, tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Normal execution GTC %v. No fills", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.5
+			if side == OrderSell {
+				o = order.Price - 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Second), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Normal execution Day %v. No fills", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.5
+			if side == OrderSell {
+				o = order.Price - 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Second), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v No execution DayTif %v. Cancel by tif", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.5
+			if side == OrderSell {
+				o = order.Price - 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Hour*26), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderCancelEvent:
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderCancelEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, CanceledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Strict order GTC %v. No execution", side, tf)
+		{
+			b.strictLimitOrders = true
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.01
+			e := newTestCandleCloseEvent(o, o, order.Price, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			if side == OrderSell {
+				o = order.Price - 0.02
+				e = newTestCandleCloseEvent(o, order.Price, o, order.Price,
+					order.Time.Add(time.Second*2), tf)
+			}
+
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Not Strict order GTC %v. Execution on order price", side, tf)
+		{
+			b.strictLimitOrders = false
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = LimitOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.01
+			e := newTestCandleCloseEvent(o, o, order.Price, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			if side == OrderSell {
+				o = order.Price - 0.02
+				e = newTestCandleCloseEvent(o, order.Price, o, order.Price,
+					order.Time.Add(time.Second*2), tf)
+			}
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+	}
+
+	for _, tf := range []string{"D", "10", "15"} {
+		testSide(OrderSell, tf)
+		testSide(OrderBuy, tf)
+	}
 
 }

@@ -573,8 +573,8 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 		}
 	case *CandleCloseEvent:
 		for _, o := range b.orders {
-			if o.Ticker == i.Candle.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
-				if o.StateUpdTime.Before(i.Candle.Datetime) {
+			if o.Ticker.Symbol == i.Candle.Ticker.Symbol && o.isActive() {
+				if o.StateUpdTime.Before(i.getTime()) {
 					cancel := b.cancelByTif(o, i.Candle.Datetime)
 					if cancel {
 						continue
@@ -763,43 +763,53 @@ func (b *simBrokerWorker) findExecutionsOnTick(orderSim *simBrokerOrder, tick *T
 
 func (b *simBrokerWorker) fillOnCandleCloseLimit(o *simBrokerOrder, e *CandleCloseEvent) event {
 	c := e.Candle
-	switch o.Side {
-	case OrderBuy:
-		if (c.Low < o.BrokerPrice) || (c.Low == o.BrokerPrice && !b.strictLimitOrders) {
-			price := o.Price
-			if e.TimeFrame == "D" && c.Open < o.BrokerPrice {
-				price = c.Open
-			}
-			fe := OrderFillEvent{
-				BaseEvent: be(e.getTime(), e.Ticker),
-				OrdId:     o.Id,
-				Price:     price,
-				Qty:       o.Qty - o.BrokerExecQty,
-			}
-
-			return &fe
+	fillPrice := math.NaN()
+	if !o.StateUpdTime.Before(c.Datetime) {
+		if o.Side == OrderBuy && c.Low < c.Open && c.Low < o.Price {
+			fillPrice = o.BrokerPrice
 		}
-	case OrderSell:
-		if (c.High > o.BrokerPrice) || (c.High == o.BrokerPrice && !b.strictLimitOrders) {
-			price := o.Price
-			if e.TimeFrame == "D" && c.Open > o.BrokerPrice {
-				price = c.Open
-			}
-			fe := OrderFillEvent{
-				BaseEvent: be(e.getTime(), e.Ticker),
-				OrdId:     o.Id,
-				Price:     price,
-				Qty:       o.Qty - o.BrokerExecQty,
-			}
 
-			return &fe
+		if o.Side == OrderSell && c.High > c.Open && c.High > o.Price {
+			fillPrice = o.BrokerPrice
 		}
-	default:
-		panic("Unknown order side: " + string(o.Side))
+	} else {
+		switch o.Side {
+		case OrderBuy:
+			if (c.Low < o.BrokerPrice) || (c.Low == o.BrokerPrice && !b.strictLimitOrders) {
 
+				if (e.TimeFrame == "D" || e.TimeFrame == "W" || (e.TimeFrame != "D" && c.isOpening())) && c.Open < o.BrokerPrice {
+					fillPrice = c.Open
+				} else {
+					fillPrice = o.BrokerPrice
+				}
+			}
+		case OrderSell:
+			if (c.High > o.BrokerPrice) || (c.High == o.BrokerPrice && !b.strictLimitOrders) {
+
+				if (e.TimeFrame == "D" || e.TimeFrame == "W" || (e.TimeFrame != "D" && c.isOpening())) && c.Open > o.BrokerPrice {
+					fillPrice = c.Open
+				} else {
+					fillPrice = o.BrokerPrice
+				}
+			}
+		default:
+			panic("Unknown order side: " + string(o.Side))
+
+		}
 	}
 
-	return nil
+	if math.IsNaN(fillPrice) {
+		return nil
+	}
+
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Ticker),
+		OrdId:     o.Id,
+		Price:     fillPrice,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
 }
 
 func (b *simBrokerWorker) fillOnCandleCloseMOC(o *simBrokerOrder, e *CandleCloseEvent) event {
