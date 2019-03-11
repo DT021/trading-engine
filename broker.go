@@ -508,7 +508,7 @@ func (b *simBrokerWorker) cancelByTif(o *simBrokerOrder, t time.Time) bool {
 	}
 
 	e := OrderCancelEvent{
-		BaseEvent: be(t, o.Ticker),
+		BaseEvent: be(o.getExpirationTime(), o.Ticker),
 		OrdId:     o.Id,
 	}
 	b.addBrokerEvent(&e)
@@ -571,7 +571,6 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 				}
 			}
 		}
-
 	case *CandleCloseEvent:
 		for _, o := range b.orders {
 			if o.Ticker == i.Candle.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
@@ -679,11 +678,17 @@ func (b *simBrokerWorker) findExecutionsOnCandleOpen(o *simBrokerOrder, e *Candl
 
 	case LimitOnOpen:
 		e := b.fillOnCandleOpenLOO(o, e)
-		if len(e) > 0 {
-			genEvents = append(genEvents, e...)
+		if e != nil {
+			genEvents = append(genEvents, e)
 			return genEvents
 		}
 
+	case StopOrder:
+		e := b.fillOnCandleOpenStop(o, e)
+		if e != nil {
+			genEvents = append(genEvents, e)
+			return genEvents
+		}
 	case MarketOnOpen:
 		e := b.fillOnCandleOpenMOO(o, e)
 		if e != nil {
@@ -813,12 +818,90 @@ func (b *simBrokerWorker) fillOnCandleCloseStop(o *simBrokerOrder, e *CandleClos
 // ********* CANDLE OPEN EXECUTORS ***********************************************************
 
 func (b *simBrokerWorker) fillOnCandleOpenMOO(o *simBrokerOrder, e *CandleOpenEvent) event {
-	panic("Not implemented") //TODO
+	if e.TimeFrame == "D" || e.TimeFrame == "W" {
+		fe := OrderFillEvent{
+			BaseEvent: be(e.getTime(), e.Ticker),
+			OrdId:     o.Id,
+			Price:     e.Price,
+			Qty:       o.Qty - o.BrokerExecQty,
+		}
+
+		return &fe
+	}
+	if e.CandleTime.Hour() != o.Ticker.Exchange.MarketOpenTime.Hour {
+		return nil
+	}
+
+	if e.CandleTime.Minute() != o.Ticker.Exchange.MarketOpenTime.Minute {
+		return nil
+	}
+
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Ticker),
+		OrdId:     o.Id,
+		Price:     e.Price,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
 
 }
 
-func (b *simBrokerWorker) fillOnCandleOpenLOO(o *simBrokerOrder, e *CandleOpenEvent) []event {
-	panic("Not implemented") //TODO
+func (b *simBrokerWorker) fillOnCandleOpenLOO(o *simBrokerOrder, e *CandleOpenEvent) event {
+	canBeFilled := false
+	if e.TimeFrame == "D" || e.TimeFrame == "W" {
+		canBeFilled = true
+
+	}
+
+	if !canBeFilled {
+		if e.CandleTime.Hour() != o.Ticker.Exchange.MarketOpenTime.Hour {
+			return nil
+		}
+
+		if e.CandleTime.Minute() != o.Ticker.Exchange.MarketOpenTime.Minute {
+			return nil
+		}
+
+		canBeFilled = true
+	}
+
+	if canBeFilled {
+		switch o.Side {
+		case OrderBuy:
+			if e.Price < o.BrokerPrice || (e.Price == o.BrokerPrice && !b.strictLimitOrders) {
+				fe := OrderFillEvent{
+					BaseEvent: be(e.getTime(), e.Ticker),
+					OrdId:     o.Id,
+					Price:     e.Price,
+					Qty:       o.Qty - o.BrokerExecQty,
+				}
+
+				return &fe
+			}
+		case OrderSell:
+			if e.Price > o.BrokerPrice || (e.Price == o.BrokerPrice && !b.strictLimitOrders) {
+				fe := OrderFillEvent{
+					BaseEvent: be(e.getTime(), e.Ticker),
+					OrdId:     o.Id,
+					Price:     e.Price,
+					Qty:       o.Qty - o.BrokerExecQty,
+				}
+
+				return &fe
+			}
+		default:
+			panic("Unknow side")
+		}
+
+		cancelE := OrderCancelEvent{
+			BaseEvent: be(e.getTime(), e.Ticker),
+			OrdId:     o.Id,
+		}
+
+		return &cancelE
+	}
+	return nil
 
 }
 
@@ -884,7 +967,35 @@ func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpen
 }
 
 func (b *simBrokerWorker) fillOnCandleOpenStop(o *simBrokerOrder, e *CandleOpenEvent) event {
-	panic("Not implemented") //TODO
+	switch o.Side {
+	case OrderBuy:
+		if e.Price > o.BrokerPrice {
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Ticker),
+				OrdId:     o.Id,
+				Price:     e.Price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	case OrderSell:
+		if e.Price < o.BrokerPrice {
+			fe := OrderFillEvent{
+				BaseEvent: be(e.getTime(), e.Ticker),
+				OrdId:     o.Id,
+				Price:     e.Price,
+				Qty:       o.Qty - o.BrokerExecQty,
+			}
+
+			return &fe
+		}
+	default:
+		panic("Unknown order side: " + string(o.Side))
+
+	}
+
+	return nil
 }
 
 //********** ON TICK FILLS ***********************************************************************
