@@ -388,7 +388,7 @@ func testEngineRun(t *testing.T, md *BTM, txtLogs bool) {
 		}
 
 		broker := newTestSimBroker()
-		broker.delay = 8000
+		broker.delay = 200
 
 		strategyMap := make(map[string]ICoreStrategy)
 		eventWritesMap := make(map[string]*eventsSliceStorage)
