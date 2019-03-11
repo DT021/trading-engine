@@ -140,6 +140,8 @@ type simBrokerWorker struct {
 	generatedEvents eventArray
 	requestEvents   eventArray
 	waitGroup       *sync.WaitGroup
+	lastTickTime    time.Time
+	lastCandleTime  time.Time
 }
 
 func (b *simBrokerWorker) notify(e event) {
@@ -476,15 +478,24 @@ func (b *simBrokerWorker) onReplaceRequest(e *OrderReplaceRequestEvent) {
 }
 
 func (b *simBrokerWorker) onCandleOpen(e *CandleOpenEvent) {
+	if e.CandleTime.Before(b.lastCandleTime) {
+		panic("Candle before seen candle")
+	}
+	b.lastCandleTime = e.CandleTime
+	b.proceedStoredRequests(e.getTime())
 	b.findExecutions(e)
 }
 
 func (b *simBrokerWorker) onCandleClose(e *CandleCloseEvent) {
+	if e.getTime().Before(b.lastCandleTime) {
+		panic("Candle before seen candle")
+	}
+	b.lastCandleTime = e.getTime()
+	b.proceedStoredRequests(e.getTime())
 	b.findExecutions(e)
 }
 
 func (b *simBrokerWorker) onTick(e *NewTickEvent) {
-
 	if !e.Tick.IsValid() {
 		err := ErrBrokenTick{
 			Tick:    *e.Tick,
@@ -493,8 +504,11 @@ func (b *simBrokerWorker) onTick(e *NewTickEvent) {
 		}
 		b.newError(&err)
 		return
-
 	}
+	if e.Tick.Datetime.Before(b.lastTickTime) {
+		panic("Tick before seen tick")
+	}
+	b.lastTickTime = e.Tick.Datetime
 	b.proceedStoredRequests(e.getTime())
 	b.findExecutions(e)
 
@@ -581,14 +595,14 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 					}
 					e := b.findExecutionsOnCandleClose(o, i)
 					if e != nil {
-						genEvents = append(genEvents, e...)
+						genEvents = append(genEvents, e)
 					}
 				}
 			}
 		}
 	case *CandleOpenEvent:
 		for _, o := range b.orders {
-			if o.Ticker == i.Ticker && (o.BrokerState == ConfirmedOrder || o.BrokerState == PartialFilledOrder) {
+			if o.Ticker == i.Ticker && o.isActive() {
 				if o.StateUpdTime.Before(i.CandleTime) {
 					cancel := b.cancelByTif(o, i.CandleTime)
 					if cancel {
@@ -596,7 +610,14 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 					}
 					e := b.findExecutionsOnCandleOpen(o, i)
 					if e != nil {
-						genEvents = append(genEvents, e...)
+						genEvents = append(genEvents, e)
+					}
+				} else {
+					if (o.Type == MarketOrder || o.Type == StopOrder) && !o.StateUpdTime.After(i.getTime()) {
+						e := b.findExecutionsOnCandleOpen(o, i)
+						if e != nil {
+							genEvents = append(genEvents, e)
+						}
 					}
 				}
 			}
@@ -633,76 +654,37 @@ func (b *simBrokerWorker) findExecutions(mdEvent event) {
 
 }
 
-func (b *simBrokerWorker) findExecutionsOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) []event {
-
-	var genEvents []event
-
+func (b *simBrokerWorker) findExecutionsOnCandleClose(o *simBrokerOrder, e *CandleCloseEvent) event {
 	switch o.Type {
 	case LimitOrder:
-		e := b.fillOnCandleCloseLimit(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
-
+		return b.fillOnCandleCloseLimit(o, e)
+	case StopOrder:
+		return b.fillOnCandleCloseStop(o, e)
 	case LimitOnClose:
-		e := b.fillOnCandleCloseLOC(o, e)
-		if len(e) > 0 {
-			genEvents = append(genEvents, e...)
-			return genEvents
-		}
-
+		return b.fillOnCandleCloseLOC(o, e)
 	case MarketOnClose:
-		e := b.fillOnCandleCloseMOC(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
+		return b.fillOnCandleCloseMOC(o, e)
+	case MarketOrder:
+		panic("Not implemented")
 	}
 
 	return nil
 
 }
 
-func (b *simBrokerWorker) findExecutionsOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) []event {
-
-	var genEvents []event
+func (b *simBrokerWorker) findExecutionsOnCandleOpen(o *simBrokerOrder, e *CandleOpenEvent) event {
 
 	switch o.Type {
 	case LimitOrder:
-		e := b.fillOnCandleOpenLimit(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
-
+		return b.fillOnCandleOpenLimit(o, e)
 	case LimitOnOpen:
-		e := b.fillOnCandleOpenLOO(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
-
+		return b.fillOnCandleOpenLOO(o, e)
 	case StopOrder:
-		e := b.fillOnCandleOpenStop(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
+		return b.fillOnCandleOpenStop(o, e)
 	case MarketOnOpen:
-		e := b.fillOnCandleOpenMOO(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
-
+		return b.fillOnCandleOpenMOO(o, e)
 	case MarketOrder:
-		e := b.fillOnCandleOpenMarket(o, e)
-		if e != nil {
-			genEvents = append(genEvents, e)
-			return genEvents
-		}
-
+		return b.fillOnCandleOpenMarket(o, e)
 	}
 
 	return nil
@@ -765,11 +747,11 @@ func (b *simBrokerWorker) fillOnCandleCloseLimit(o *simBrokerOrder, e *CandleClo
 	c := e.Candle
 	fillPrice := math.NaN()
 	if !o.StateUpdTime.Before(c.Datetime) {
-		if o.Side == OrderBuy && c.Low < c.Open && c.Low < o.Price {
+		if o.Side == OrderBuy && c.Low < c.Open && c.Low < o.BrokerPrice {
 			fillPrice = o.BrokerPrice
 		}
 
-		if o.Side == OrderSell && c.High > c.Open && c.High > o.Price {
+		if o.Side == OrderSell && c.High > c.Open && c.High > o.BrokerPrice {
 			fillPrice = o.BrokerPrice
 		}
 	} else {
@@ -813,16 +795,108 @@ func (b *simBrokerWorker) fillOnCandleCloseLimit(o *simBrokerOrder, e *CandleClo
 }
 
 func (b *simBrokerWorker) fillOnCandleCloseMOC(o *simBrokerOrder, e *CandleCloseEvent) event {
-	panic("Not implemented") //TODO
+	if !e.Candle.isClosingForTimeFrame(e.TimeFrame) {
+		return nil
+	}
+
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Ticker),
+		OrdId:     o.Id,
+		Price:     e.Candle.Close,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
 
 }
 
-func (b *simBrokerWorker) fillOnCandleCloseLOC(o *simBrokerOrder, e *CandleCloseEvent) []event {
-	panic("Not implemented") // TODO
+func (b *simBrokerWorker) fillOnCandleCloseLOC(o *simBrokerOrder, e *CandleCloseEvent) event {
+	if !e.Candle.isClosingForTimeFrame(e.TimeFrame) {
+		return nil
+	}
+	fillPrice := math.NaN()
+	switch o.Side {
+	case OrderBuy:
+		if e.Candle.Close < o.BrokerPrice || (e.Candle.Close == o.BrokerPrice && !b.strictLimitOrders) {
+			fillPrice = e.Candle.Close
+		}
+
+	case OrderSell:
+		if e.Candle.Close > o.BrokerPrice || (e.Candle.Close == o.BrokerPrice && !b.strictLimitOrders) {
+			fillPrice = e.Candle.Close
+		}
+
+	default:
+		panic("Unknown side")
+
+	}
+
+	if math.IsNaN(fillPrice) {
+		cancelE := OrderCancelEvent{
+			BaseEvent: be(e.getTime(), e.Ticker),
+			OrdId:     o.Id,
+		}
+		return &cancelE
+	}
+
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Ticker),
+		OrdId:     o.Id,
+		Price:     fillPrice,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
+
 }
 
 func (b *simBrokerWorker) fillOnCandleCloseStop(o *simBrokerOrder, e *CandleCloseEvent) event {
-	panic("Not implemented") //TODO
+	c := e.Candle
+	fillPrice := math.NaN()
+	if !o.StateUpdTime.Before(c.Datetime) {
+		if o.Side == OrderBuy && c.High > c.Open && c.High > o.BrokerPrice {
+			fillPrice = c.Open
+		}
+
+		if o.Side == OrderSell && c.Low < c.Open && c.Low < o.BrokerPrice {
+			fillPrice = c.Open
+		}
+	} else {
+		switch o.Side {
+		case OrderBuy:
+			if c.High >= o.BrokerPrice {
+				if c.Open > o.BrokerPrice {
+					fillPrice = c.Open
+				} else {
+					fillPrice = o.BrokerPrice
+				}
+			}
+		case OrderSell:
+			if c.Low <= o.BrokerPrice {
+				if c.Open < o.BrokerPrice {
+					fillPrice = c.Open
+				} else {
+					fillPrice = o.BrokerPrice
+				}
+			}
+		default:
+			panic("Unknown order side: " + string(o.Side))
+
+		}
+	}
+
+	if math.IsNaN(fillPrice) {
+		return nil
+	}
+
+	fe := OrderFillEvent{
+		BaseEvent: be(e.getTime(), e.Ticker),
+		OrdId:     o.Id,
+		Price:     fillPrice,
+		Qty:       o.Qty - o.BrokerExecQty,
+	}
+
+	return &fe
 }
 
 // ********* CANDLE OPEN EXECUTORS ***********************************************************

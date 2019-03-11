@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"math"
+	"strconv"
 	"time"
 )
 
@@ -104,12 +105,49 @@ type Candle struct {
 }
 
 func (c *Candle) isValid() bool {
-	return true // TODO
+	if c == nil {
+		return false
+	}
+	if c.Datetime.Year() < 1995 {
+		return false
+	}
+	if c.High < c.Low {
+		return false
+	}
+	if c.Open > c.High {
+		return false
+	}
+	if c.Close > c.High {
+		return false
+	}
+	if c.Open < c.Low {
+		return false
+	}
+	if c.Open > c.High {
+		return false
+	}
+	return true
 }
 
-func (c *Candle) isOpening() bool{
+func (c *Candle) isOpening() bool {
 	e := c.Ticker.Exchange
-	if c.Datetime.Hour() == e.MarketOpenTime.Hour && c.Datetime.Minute() == e.MarketOpenTime.Minute{
+	if c.Datetime.Hour() == e.MarketOpenTime.Hour && c.Datetime.Minute() == e.MarketOpenTime.Minute {
+		return true
+	}
+	return false
+}
+
+func (c *Candle) isClosingForTimeFrame(tf string) bool {
+	if tf == "D" || tf == "W" {
+		return true
+	}
+	mins, err := strconv.ParseInt(tf, 10, 8)
+	if err != nil {
+		panic("Unknown timeframe. ")
+	}
+	e := c.Ticker.Exchange
+	closeTime := c.Datetime.Add(time.Minute * time.Duration(mins))
+	if closeTime.Hour() == e.MarketCloseTime.Hour && closeTime.Minute() == e.MarketCloseTime.Minute {
 		return true
 	}
 	return false

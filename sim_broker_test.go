@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"math"
 	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -189,8 +190,12 @@ eventloop:
 	for {
 		select {
 		case e := <-b.events:
+			switch e.(type) {
+			case *NewTickEvent:
+				continue eventloop
+			}
 			events = append(events, e)
-		case <-time.After(30 * time.Millisecond):
+		case <-time.After(20 * time.Millisecond):
 			break eventloop
 		}
 	}
@@ -206,6 +211,9 @@ errorsLoop:
 	}
 	wg.Wait()
 	delete(b.orders, order.Id)
+	events = append(events, b.generatedEvents...)
+	b.generatedEvents = eventArray{}
+	b.lastTickTime = time.Time{}
 	return events, errors
 
 }
@@ -246,6 +254,7 @@ errorsLoop:
 	}
 	wg.Wait()
 	delete(b.orders, order.Id)
+	b.lastCandleTime = time.Time{}
 	return events, errors
 
 }
@@ -286,6 +295,7 @@ errorsLoop:
 	}
 	wg.Wait()
 	delete(b.orders, order.Id)
+	b.lastCandleTime = time.Time{}
 	return events, errors
 
 }
@@ -3024,6 +3034,10 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		for {
 			select {
 			case e := <-b.events:
+				switch e.(type) {
+				case *NewTickEvent:
+					continue LOOP
+				}
 				events = append(events, e)
 			case e := <-b.errChan:
 				errors = append(errors, e)
@@ -3034,6 +3048,8 @@ func TestSimulatedBroker_OnTick(t *testing.T) {
 		}
 
 		wg.Wait()
+		events = append(events, b.generatedEvents...)
+		b.generatedEvents = eventArray{}
 
 		return errors, events
 	}
@@ -3405,7 +3421,7 @@ func TestSimBroker_fillMarketOnCandleOpen(t *testing.T) {
 func TestSimBroker_fillLimitOnCandleOpen(t *testing.T) {
 	b := newTestSimBrokerWorker()
 
-	t.Log("Normal execution on Day candle")
+	t.Log("on Day candle")
 	{
 		order := newTestDayBrokerOrder(20.10, OrderBuy, 200, "id2")
 		order.Type = LimitOrder
@@ -3436,7 +3452,7 @@ func TestSimBroker_fillLimitOnCandleOpen(t *testing.T) {
 		assert.Equal(t, FilledOrder, order.BrokerState)
 	}
 
-	t.Log("Normal execution on Intraday candle")
+	t.Log("on Intraday candle")
 	{
 		order := newTestDayBrokerOrder(20.10, OrderBuy, 200, "id2")
 		order.Type = LimitOrder
@@ -3543,7 +3559,7 @@ func TestSimBroker_fillLimitOnCandleOpen(t *testing.T) {
 func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 	b := newTestSimBrokerWorker()
 
-	t.Log("Normal execution on Day candle")
+	t.Log("on Day candle")
 	{
 		order := newTestDayBrokerOrder(20.10, OrderBuy, 200, "id2")
 		order.Type = StopOrder
@@ -3574,7 +3590,7 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 		assert.Equal(t, FilledOrder, order.BrokerState)
 	}
 
-	t.Log("Normal execution on Intraday candle")
+	t.Log("on Intraday candle")
 	{
 		order := newTestDayBrokerOrder(20.10, OrderBuy, 200, "id2")
 		order.Type = StopOrder
@@ -3671,12 +3687,11 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 		}
 
 		events, errors := putOrderAndFillOnCandleOpen(b, order, &coe)
-		assert.Len(t, events, 0)
+		assert.Len(t, events, 1)
 		assert.Len(t, errors, 0)
 
 		switch i := events[0].(type) {
 		case *OrderFillEvent:
-
 			assert.Equal(t, coe.Price, i.Price)
 			assert.Equal(t, order.Qty, i.Qty)
 			assert.Equal(t, order.Id, i.OrdId)
@@ -3693,7 +3708,7 @@ func TestSimBroker_fillStopOnCandleOpen(t *testing.T) {
 func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 	b := newTestSimBrokerWorker()
 
-	t.Log("Normal execution with day candle")
+	t.Log("with day candle")
 	{
 		order := newTestOpgBrokerOrder(math.NaN(), OrderBuy, 200, "id2")
 		order.Type = MarketOnOpen
@@ -3753,7 +3768,7 @@ func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 		assert.Equal(t, CanceledOrder, order.BrokerState)
 	}
 
-	t.Log("Normal execution with 5 min candle")
+	t.Log("with 5 min candle")
 	{
 		order := newTestOpgBrokerOrder(math.NaN(), OrderBuy, 200, "id2")
 		order.Type = MarketOnOpen
@@ -3788,7 +3803,7 @@ func TestSimBroker_fillMooOnCandleOpen(t *testing.T) {
 		assert.Equal(t, FilledOrder, order.BrokerState)
 	}
 
-	t.Log("Normal execution with 15 min candle")
+	t.Log("with 15 min candle")
 	{
 		order := newTestOpgBrokerOrder(math.NaN(), OrderBuy, 200, "id2")
 		order.Type = MarketOnOpen
@@ -3913,7 +3928,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 	testLimitSide := func(side OrderSide) {
 		b := newTestSimBrokerWorker()
 
-		t.Log("Normal execution with day candle")
+		t.Log("with day candle")
 		{
 			order := newTestOpgBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOnOpen
@@ -4082,7 +4097,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 			assert.Equal(t, CanceledOrder, order.BrokerState)
 		}
 
-		t.Log("Normal execution with 5 min candle")
+		t.Log("with 5 min candle")
 		{
 			order := newTestOpgBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOnOpen
@@ -4160,7 +4175,7 @@ func TestSimBroker_fillLooOnCandleOpen(t *testing.T) {
 			assert.Equal(t, CanceledOrder, order.BrokerState)
 		}
 
-		t.Log("Normal execution with 15 min candle")
+		t.Log("with 15 min candle")
 		{
 			order := newTestOpgBrokerOrder(20.09, side, 200, "id2")
 			order.Type = LimitOnOpen
@@ -4410,7 +4425,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 		b := newTestSimBrokerWorker()
 
 		if tf == "D" {
-			t.Logf("%v Normal execution GTC %v. Expected fill on Open price", side, tf)
+			t.Logf("%v GTC %v. Expected fill on Open price", side, tf)
 			{
 				order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
 				order.Type = LimitOrder
@@ -4521,7 +4536,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution GTC %v. Expected fill on order price", side, tf)
+		t.Logf("%v GTC %v. Expected fill on order price", side, tf)
 		{
 			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOrder
@@ -4553,7 +4568,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution DayTif %v. Expected fill on order price", side, tf)
+		t.Logf("%v DayTif %v. Expected fill on order price", side, tf)
 		{
 			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOrder
@@ -4585,7 +4600,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution GTC %v. Order time after candle open time. Expect fill on order price", side, tf)
+		t.Logf("%v GTC %v. Order time after candle open time. Expect fill on order price", side, tf)
 		{
 			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOrder
@@ -4617,7 +4632,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution GTC %v. Order time after candle open time. Expect no fills. "+
+		t.Logf("%v GTC %v. Order time after candle open time. Expect no fills. "+
 			"Candle HL equal open price", side, tf)
 		{
 			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
@@ -4640,7 +4655,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution GTC %v. No fills", side, tf)
+		t.Logf("%v GTC %v. No fills", side, tf)
 		{
 			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOrder
@@ -4662,7 +4677,7 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 
 		}
 
-		t.Logf("%v Normal execution Day %v. No fills", side, tf)
+		t.Logf("%v Day %v. No fills", side, tf)
 		{
 			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
 			order.Type = LimitOrder
@@ -4779,4 +4794,912 @@ func TestSimBroker_fillLimitOnCandleClose(t *testing.T) {
 		testSide(OrderBuy, tf)
 	}
 
+}
+
+func TestSimBroker_fillStopOnCandleClose(t *testing.T) {
+	testSide := func(side OrderSide, tf string) {
+		b := newTestSimBrokerWorker()
+
+		t.Logf("%v GTC %v. Expected fill on open price", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.05
+			if side == OrderSell {
+				o = order.Price - 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+				order.Time.Add(time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, o, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v GTC %v. Expected fill on order price", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.01
+			if side == OrderSell {
+				o = order.Price + 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.05, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v DayTif %v. Expected fill on order price", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.01
+			if side == OrderSell {
+				o = order.Price + 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, order.Price+0.06, order.Price-0.05, order.Price,
+				order.Time.Add(time.Second*2), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+
+				assert.Equal(t, order.Price, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v GTC %v. Order time after candle open time. L or H is same as O. No fills", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.05
+			e := newTestCandleCloseEvent(o, o, order.Price-0.06, order.Price,
+				order.Time.Add(-time.Second*2), tf)
+			if side == OrderSell {
+				o = order.Price - 0.05
+				e = newTestCandleCloseEvent(o, order.Price+0.06, o, order.Price,
+					order.Time.Add(-time.Second*2), tf)
+			}
+
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v GTC %v. Order time after candle open time. L or H is not same as O. Fills on open", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price + 0.05
+			e := newTestCandleCloseEvent(o, o+0.02, order.Price-0.06, order.Price,
+				order.Time.Add(-time.Second*2), tf)
+			if side == OrderSell {
+				o = order.Price - 0.05
+				e = newTestCandleCloseEvent(o, order.Price+0.06, o-0.02, order.Price,
+					order.Time.Add(-time.Second*2), tf)
+			}
+
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderFillEvent:
+				assert.Equal(t, o, i.Price)
+				assert.Equal(t, order.Qty, i.Qty)
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, order.Qty, order.BrokerExecQty)
+			assert.Equal(t, FilledOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v GTC %v. No fills", side, tf)
+		{
+			order := newTestGtcBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.5
+			if side == OrderSell {
+				o = order.Price + 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Second), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v Day %v. No fills", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.5
+			if side == OrderSell {
+				o = order.Price + 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Second), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 0)
+			assert.Len(t, errors, 0)
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, ConfirmedOrder, order.BrokerState)
+
+		}
+
+		t.Logf("%v No execution DayTif %v. Cancel by tif", side, tf)
+		{
+			order := newTestDayBrokerOrder(20.10, side, 200, "id2")
+			order.Type = StopOrder
+			assert.True(t, order.isValid())
+
+			o := order.Price - 0.5
+			if side == OrderSell {
+				o = order.Price + 0.5
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.1, o-0.1, o+0.05,
+				order.Time.Add(time.Hour*26), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderCancelEvent:
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderCancelEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, CanceledOrder, order.BrokerState)
+
+		}
+	}
+
+	for _, tf := range []string{"D", "10", "15"} {
+		testSide(OrderSell, tf)
+		testSide(OrderBuy, tf)
+	}
+
+}
+
+func TestSimBroker_fillMocOnCandleClose(t *testing.T) {
+	testSide := func(side OrderSide, tf string) {
+		b := newTestSimBrokerWorker()
+
+		if tf == "D" || tf == "W" {
+			t.Logf("%v Day Candle. Expected fill on close price", side)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+		} else {
+			t.Logf("%v %v Not closing candle. No events", side, tf)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 0)
+				assert.Len(t, errors, 0)
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, ConfirmedOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Not closing candle. Candle after market close. Cancel event expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time.Add(time.Hour*9), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle. Fill expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time, tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle day before. No events", side, tf)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time, tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, -1)
+				e.setEventTimeFromCandle()
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 0)
+				assert.Len(t, errors, 0)
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, ConfirmedOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle day after. Cancel expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+				order.Type = MarketOnClose
+				assert.True(t, order.isValid())
+
+				o := 15.02 + 0.05
+				if side == OrderSell {
+					o = 15.04 - 0.02
+				}
+
+				e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+					order.Time, tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, 1)
+				e.setEventTimeFromCandle()
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+		}
+
+		t.Logf("%v %v Candle. Next day candle. Expected Cancel", side, tf)
+		{
+			order := newTestOpgBrokerOrder(math.NaN(), side, 200, "id2")
+			order.Type = MarketOnClose
+			assert.True(t, order.isValid())
+
+			o := 15.02 + 0.05
+			if side == OrderSell {
+				o = 15.04 - 0.02
+			}
+
+			e := newTestCandleCloseEvent(o, o+0.06, o-0.05, o+0.02,
+				order.Time.Add(time.Hour*26), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderCancelEvent:
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, CanceledOrder, order.BrokerState)
+
+		}
+	}
+
+	for _, tf := range []string{"D", "W", "10", "15"} {
+		testSide(OrderSell, tf)
+		testSide(OrderBuy, tf)
+	}
+}
+
+func TestSimBroker_fillLocOnCandleClose(t *testing.T) {
+	testSide := func(side OrderSide, tf string) {
+		b := newTestSimBrokerWorker()
+
+		if tf == "D" || tf == "W" {
+			t.Logf("%v Day Candle. Expected fill on close price", side)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price - 0.05
+				if side == OrderSell {
+					c = order.Price + 0.02
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+
+			t.Logf("%v Day Candle. Expected cancel. No order price", side)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price + 0.01
+				if side == OrderSell {
+					c = order.Price - 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+
+			}
+
+			t.Logf("%v Day Candle. Expected cancel. No order price. Strict", side)
+			{
+				b.strictLimitOrders = true
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price
+				if side == OrderSell {
+					c = order.Price
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+
+			}
+
+			t.Logf("%v Day Candle. Fill.  not strict", side)
+			{
+				b.strictLimitOrders = false
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price - 0.05
+				if side == OrderSell {
+					c = order.Price + 0.02
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+
+			}
+
+		} else {
+			t.Logf("%v %v Not closing candle. No events", side, tf)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price + 0.01
+				if side == OrderSell {
+					c = order.Price - 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 0)
+				assert.Len(t, errors, 0)
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, ConfirmedOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Not closing candle. Candle after market close. Cancel event expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price + 0.01
+				if side == OrderSell {
+					c = order.Price - 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Hour*9), tf)
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle. Fill expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price - 0.01
+				if side == OrderSell {
+					c = order.Price + 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle. No price. Cancel expected", side, tf)
+			{
+				b.strictLimitOrders = true
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price + 0.1
+				if side == OrderSell {
+					c = order.Price - 0.1
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle. Strict limits. Cancel expected", side, tf)
+			{
+				b.strictLimitOrders = true
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price
+				if side == OrderSell {
+					c = order.Price
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle. Non strict limits. Fill expected", side, tf)
+			{
+				b.strictLimitOrders = false
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price
+				if side == OrderSell {
+					c = order.Price
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderFillEvent:
+					assert.Equal(t, e.Candle.Close, i.Price)
+					assert.Equal(t, order.Qty, i.Qty)
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, order.Qty, order.BrokerExecQty)
+				assert.Equal(t, FilledOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle day before. No events", side, tf)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price - 0.01
+				if side == OrderSell {
+					c = order.Price + 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, -1)
+				e.setEventTimeFromCandle()
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 0)
+				assert.Len(t, errors, 0)
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, ConfirmedOrder, order.BrokerState)
+			}
+
+			t.Logf("%v %v Closing candle day after. Cancel expected", side, tf)
+			{
+				order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+				order.Type = LimitOnClose
+				assert.True(t, order.isValid())
+
+				c := order.Price - 0.01
+				if side == OrderSell {
+					c = order.Price + 0.01
+				}
+
+				e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+					order.Time.Add(time.Second*2), tf)
+
+				mins, err := strconv.ParseInt(tf, 10, 8)
+				if err != nil {
+					panic("Unknown timeframe. ")
+				}
+				e.Candle.Datetime = time.Date(e.Candle.Datetime.Year(), e.Candle.Datetime.Month(), e.Candle.Datetime.Day(),
+					order.Ticker.Exchange.MarketCloseTime.Hour, order.Ticker.Exchange.MarketCloseTime.Minute, 0, 0,
+					e.Candle.Datetime.Location())
+				e.Candle.Datetime = e.Candle.Datetime.Add(-time.Minute * time.Duration(mins))
+				e.Candle.Datetime = e.Candle.Datetime.AddDate(0, 0, 1)
+				e.setEventTimeFromCandle()
+				events, errors := putOrderAndFillOnCandleClose(b, order, e)
+				assert.Len(t, events, 1)
+				assert.Len(t, errors, 0)
+
+				switch i := events[0].(type) {
+				case *OrderCancelEvent:
+					assert.Equal(t, order.Id, i.OrdId)
+				default:
+					t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+				}
+
+				assert.Equal(t, int64(0), order.BrokerExecQty)
+				assert.Equal(t, CanceledOrder, order.BrokerState)
+			}
+
+		}
+
+		t.Logf("%v %v Candle. Next day candle. Expected Cancel", side, tf)
+		{
+			order := newTestOpgBrokerOrder(20.05, side, 200, "id2")
+			order.Type = LimitOnClose
+			assert.True(t, order.isValid())
+
+			c := order.Price - 0.01
+			if side == OrderSell {
+				c = order.Price + 0.01
+			}
+
+			e := newTestCandleCloseEvent(c+0.01, c+0.06, c-0.05, c,
+				order.Time.Add(time.Hour*26), tf)
+			events, errors := putOrderAndFillOnCandleClose(b, order, e)
+			assert.Len(t, events, 1)
+			assert.Len(t, errors, 0)
+
+			switch i := events[0].(type) {
+			case *OrderCancelEvent:
+				assert.Equal(t, order.Id, i.OrdId)
+			default:
+				t.Errorf("Error! Expected OrderFillEvent. Got: %+v", i)
+			}
+
+			assert.Equal(t, int64(0), order.BrokerExecQty)
+			assert.Equal(t, CanceledOrder, order.BrokerState)
+
+		}
+	}
+
+	for _, tf := range []string{"D", "W", "10", "15"} {
+		testSide(OrderSell, tf)
+		testSide(OrderBuy, tf)
+	}
+}
+
+func TestSimBroker_fillMarketOnCandleClose(t *testing.T){
+	panic("Not implemented")
 }

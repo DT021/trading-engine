@@ -339,7 +339,7 @@ func (b *BasicStrategy) onCandleCloseHandler(e *CandleCloseEvent) {
 			b.mostRecentTime = e.getTime()
 		}
 
-		if e.Candle == nil || !e.Candle.isValid() {
+		if !e.Candle.isValid() {
 			return
 		}
 
