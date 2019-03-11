@@ -424,7 +424,7 @@ func testEngineRun(t *testing.T, md *BTM, txtLogs bool) {
 
 }
 
-/*func TestEngine_RunSimpleTicks(t *testing.T) {
+func TestEngine_RunSimpleTicks(t *testing.T) {
 	md := newTestBTMforTicks()
 	testEngineRun(t, md, true)
 
@@ -438,4 +438,4 @@ func TestEngine_RunLargeDataTicks(t *testing.T) {
 func TestEngine_RunDayCandles(t *testing.T) {
 	md := newTestBTMforCandles()
 	testEngineRun(t, md, true)
-}*/
+}

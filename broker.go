@@ -61,7 +61,7 @@ func (o *simBrokerOrder) getExpirationTime() time.Time {
 }
 
 func (o *simBrokerOrder) isExpired(t time.Time) bool {
-	if t.After(o.getExpirationTime()){
+	if t.After(o.getExpirationTime()) {
 		return true
 	}
 	return false
@@ -798,8 +798,9 @@ func (b *simBrokerWorker) fillOnCandleOpenMarket(o *simBrokerOrder, e *CandleOpe
 }
 
 func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpenEvent) event {
-	if e.TimeFrame != "D" {
-		return nil
+	fillPrice := o.BrokerPrice
+	if e.TimeFrame == "D" || e.TimeFrame == "W" {
+		fillPrice = e.Price
 	}
 	switch o.Side {
 	case OrderBuy:
@@ -807,7 +808,7 @@ func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpen
 			fe := OrderFillEvent{
 				BaseEvent: be(e.getTime(), e.Ticker),
 				OrdId:     o.Id,
-				Price:     e.Price,
+				Price:     fillPrice,
 				Qty:       o.Qty - o.BrokerExecQty,
 			}
 
@@ -818,7 +819,7 @@ func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpen
 			fe := OrderFillEvent{
 				BaseEvent: be(e.getTime(), e.Ticker),
 				OrdId:     o.Id,
-				Price:     e.Price,
+				Price:     fillPrice,
 				Qty:       o.Qty - o.BrokerExecQty,
 			}
 
@@ -826,6 +827,18 @@ func (b *simBrokerWorker) fillOnCandleOpenLimit(o *simBrokerOrder, e *CandleOpen
 		}
 	default:
 		panic("Unknown order side: " + string(o.Side))
+
+	}
+
+	if !b.strictLimitOrders && e.Price == o.BrokerPrice {
+		fe := OrderFillEvent{
+			BaseEvent: be(e.getTime(), e.Ticker),
+			OrdId:     o.Id,
+			Price:     fillPrice,
+			Qty:       o.Qty - o.BrokerExecQty,
+		}
+
+		return &fe
 
 	}
 
